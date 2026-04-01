@@ -147,7 +147,18 @@ public class PlanLifecycleTests
             Assert.False(string.IsNullOrEmpty(conn.SessionId));
 
             // Check user balance — fee grant should have covered gas
-            var userBalAfter = await userChain.GetBalanceAsync(userWallet.Address);
+            // Retry once on LCD failure (known flaky endpoint issue)
+            Balance userBalAfter;
+            try
+            {
+                userBalAfter = await userChain.GetBalanceAsync(userWallet.Address);
+            }
+            catch
+            {
+                _output.WriteLine($"   Balance check failed, retrying after 5s...");
+                await Task.Delay(5000);
+                userBalAfter = await userChain.GetBalanceAsync(userWallet.Address);
+            }
             _output.WriteLine($"   User balance after: {Helpers.FormatP2P(userBalAfter.Udvpn)}");
 
             // ─── 8. Disconnect ───
