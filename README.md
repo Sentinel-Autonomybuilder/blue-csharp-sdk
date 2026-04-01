@@ -1,8 +1,16 @@
-# Sentinel dVPN SDK — C# / .NET
+# Sentinel dVPN SDK — C#
 
-The official C# SDK for the [Sentinel](https://sentinel.co) decentralized VPN network. Build Windows desktop VPN apps with WPF, WinUI, MAUI, or any .NET 8 framework. WireGuard + V2Ray tunnels, 814 tests, full Cosmos blockchain integration.
+The official C# SDK for the [Sentinel](https://sentinel.co) decentralized VPN network. Build native desktop and server VPN applications. WireGuard + V2Ray tunnels, 814 tests, Cosmos blockchain, .NET 8.
 
 **Also available:** [JavaScript SDK](https://github.com/Sentinel-Autonomybuilder/sentinel-dvpn-sdk) | [AI Connect](https://github.com/Sentinel-Autonomybuilder/sentinel-ai-connect) (zero-config JS wrapper)
+
+## NuGet Packages
+
+| Package | Description |
+|---------|-------------|
+| `Sentinel.SDK.Core` | Wallet, chain client, protobuf encoding, transaction building |
+| `Sentinel.SDK.Node` | Node discovery, handshake, session management, VPN client |
+| `Sentinel.SDK.Tunnel` | WireGuard + V2Ray tunnel management, kill switch, DNS leak prevention |
 
 ## Architecture
 
