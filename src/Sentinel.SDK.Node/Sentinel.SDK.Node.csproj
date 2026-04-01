@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sentinel.SDK.Node</RootNamespace>
+    <PackageId>Sentinel.SDK.Node</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Sentinel dVPN Community</Authors>
+    <Description>Sentinel dVPN SDK for .NET — V3 handshake, node status, session management</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sentinel-official</PackageProjectUrl>
+    <PackageTags>sentinel;dvpn;vpn;blockchain;cosmos</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sentinel.SDK.Core\Sentinel.SDK.Core.csproj" />
+    <ProjectReference Include="..\Sentinel.SDK.Tunnel\Sentinel.SDK.Tunnel.csproj" />
+    <PackageReference Include="NSec.Cryptography" Version="24.*" />
+  </ItemGroup>
+</Project>

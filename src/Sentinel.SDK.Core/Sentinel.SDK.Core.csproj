@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Sentinel.SDK.Core</RootNamespace>
+    <PackageId>Sentinel.SDK.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Sentinel dVPN Community</Authors>
+    <Description>Sentinel dVPN SDK for .NET — wallet, chain queries, transaction building</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sentinel-official</PackageProjectUrl>
+    <PackageTags>sentinel;dvpn;vpn;blockchain;cosmos</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NBitcoin" Version="7.*" />
+    <PackageReference Include="Google.Protobuf" Version="3.*" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.*" />
+  </ItemGroup>
+</Project>
