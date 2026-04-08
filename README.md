@@ -1,28 +1,75 @@
-# Sentinel dVPN SDK — C#
+# Sentinel dVPN SDK -- C#
 
-The official C# SDK for the [Sentinel](https://sentinel.co) decentralized VPN network. Build native desktop and server VPN applications. WireGuard + V2Ray tunnels, 814 tests, Cosmos blockchain, .NET 8.
+Complete protocol library for building decentralized VPN applications on the [Sentinel network](https://sentinel.co). WireGuard and V2Ray tunnels, wallet management, session handling, and all chain message types for Sentinel v3. .NET 8, 814+ tests, zero external service dependencies.
 
 **Also available:** [JavaScript SDK](https://github.com/Sentinel-Autonomybuilder/sentinel-dvpn-sdk) | [AI Connect](https://github.com/Sentinel-Autonomybuilder/sentinel-ai-connect) (zero-config JS wrapper)
+
+## Quick Start
+
+```csharp
+using var vpn = new SentinelVpnClient(SentinelWallet.FromMnemonic(mnemonic), new());
+var result = await vpn.ConnectAutoAsync(new ConnectAutoOptions { Countries = ["DE", "US"] });
+await vpn.DisconnectAsync(); // or let IDisposable handle it
+```
+
+## Install
+
+```bash
+dotnet add package Sentinel.SDK          # Meta-package (all three)
+dotnet add package Sentinel.SDK.Core     # Wallet + chain only
+dotnet add package Sentinel.SDK.Node     # + handshake + VPN client
+dotnet add package Sentinel.SDK.Tunnel   # + WireGuard/V2Ray
+```
+
+Requires .NET 8.0+. WireGuard nodes require admin privileges; without admin, the SDK connects via V2Ray nodes (~70% of the network). V2Ray 5.2.1 binary required for V2Ray nodes (do NOT use 5.44.1+).
 
 ## NuGet Packages
 
 | Package | Description |
 |---------|-------------|
-| `Sentinel.SDK.Core` | Wallet, chain client, protobuf encoding, transaction building |
-| `Sentinel.SDK.Node` | Node discovery, handshake, session management, VPN client |
-| `Sentinel.SDK.Tunnel` | WireGuard + V2Ray tunnel management, kill switch, DNS leak prevention |
+| **Sentinel.SDK.Core** | Wallet, chain client, protobuf encoding, transaction building, error hierarchy, helpers, state persistence |
+| **Sentinel.SDK.Node** | Node discovery, V3 handshake, session management, `SentinelVpnClient` orchestrator |
+| **Sentinel.SDK.Tunnel** | WireGuard tunnel service, V2Ray process management, kill switch, DNS leak prevention |
 
 ## Architecture
 
 ```
-Sentinel.SDK.Core      -- Wallet, chain client, TX building, 17 message types, error handling, helpers
-Sentinel.SDK.Node      -- V3 handshake, node status, session management, SentinelVpnClient
-Sentinel.SDK.Tunnel    -- WireGuard tunnel service + V2Ray process management (Windows)
+                    ┌──────────────────────────────────────────┐
+                    │           Your Application               │
+                    └─────────────────┬────────────────────────┘
+                                      │
+                    ┌─────────────────▼────────────────────────┐
+                    │         Sentinel.SDK.Node                 │
+                    │                                           │
+                    │  SentinelVpnClient (orchestrator)         │
+                    │    ConnectAsync          SessionManager   │
+                    │    ConnectAutoAsync      Handshake        │
+                    │    ConnectViaSubAsync    NodeClient        │
+                    │    DisconnectAsync       DiagnoseAsync    │
+                    │    Events: Progress, Connected,           │
+                    │            Disconnected, Error            │
+                    └──────┬───────────────────────┬───────────┘
+                           │                       │
+          ┌────────────────▼──────────┐  ┌────────▼─────────────────┐
+          │    Sentinel.SDK.Core      │  │  Sentinel.SDK.Tunnel     │
+          │                           │  │                           │
+          │  SentinelWallet           │  │  WireGuard/               │
+          │  ChainClient (LCD+RPC)    │  │    WireGuardTunnel       │
+          │  TransactionBuilder       │  │    KillSwitch            │
+          │  MessageBuilder (17 msgs) │  │    DnsLeakPrevention     │
+          │  SentinelErrors (42 codes)│  │  V2Ray/                  │
+          │  AutoReconnect            │  │    V2RayConfigBuilder    │
+          │  CircuitBreaker           │  │    V2RayProcess          │
+          │  NetworkMonitor           │  └───────────────────────────┘
+          │  NodeCache, SpeedTest     │
+          │  SessionTracker           │
+          │  VpnSettings, Helpers     │
+          │  ISdkLogger, StateManager │
+          │  TofuTrustStore           │
+          └───────────────────────────┘
 ```
 
-## Quick Start
-
-The simplest path: `SentinelVpnClient` orchestrates everything -- balance check, node selection, session creation, handshake, and tunnel installation.
+## Full Example
 
 ```csharp
 using Sentinel.SDK.Core;
@@ -31,73 +78,151 @@ using Sentinel.SDK.Node;
 // 1. Create or restore wallet
 using var wallet = SentinelWallet.FromMnemonic("your twelve word mnemonic phrase goes here ...");
 
-// 2. Create VPN client
+// 2. Create VPN client with options
 using var vpn = new SentinelVpnClient(wallet, new SentinelVpnOptions
 {
     Gigabytes = 1,
     FullTunnel = true,
+    Logger = new ConsoleSdkLogger(),
 });
 
-// 3. Subscribe to progress events
+// 3. Subscribe to events for UI binding
 vpn.Progress += (_, e) => Console.WriteLine($"[{e.Step}] {e.Detail}");
-vpn.Error += (_, e) => Console.WriteLine($"Error: {e.Exception.Message}");
+vpn.Connected += (_, e) => Console.WriteLine($"Connected to {e.NodeAddress}");
+vpn.Disconnected += (_, e) => Console.WriteLine($"Disconnected: {e.Reason}");
+vpn.Error += (_, e) => Console.WriteLine($"Error [{e.Code}]: {e.Message}");
 
 // 4. Auto-pick best node and connect
 var result = await vpn.ConnectAutoAsync(new ConnectAutoOptions
 {
-    Countries = new[] { "DE", "US" },
+    Countries = ["DE", "US"],
     ServiceType = "wireguard",
     MaxAttempts = 3,
 });
 
-Console.WriteLine($"VPN connected! Node: {result.NodeAddress}, Session: {result.SessionId}");
-Console.ReadKey();
+Console.WriteLine($"VPN active! Node: {result.NodeAddress}, Session: {result.SessionId}");
 
-// 5. Disconnect (or let Dispose handle it)
+// 5. Verify traffic is routed through VPN
+var verify = await vpn.VerifyConnectionAsync();
+Console.WriteLine($"External IP: {verify.ExternalIp}");
+
+// 6. Disconnect (or let Dispose handle it)
 await vpn.DisconnectAsync();
 ```
 
-## Features
+## Key Features
 
-### SentinelVpnClient (High-Level Orchestrator)
+- **`IDisposable` everywhere** -- `SentinelWallet`, `SentinelVpnClient`, `ChainClient` all implement `IDisposable` for deterministic cleanup. `using` statements guarantee tunnel teardown and key material disposal
+- **Full `async/await`** -- every network operation is async with `CancellationToken` support
+- **`ISdkLogger` interface** -- plug in your logging framework (`Serilog`, `NLog`, `ILogger<T>` adapter). Ships with `ConsoleSdkLogger` and `NullSdkLogger`
+- **Event-driven** -- `Progress`, `Connected`, `Disconnected`, `Error` events for clean UI binding (WPF, MAUI, Avalonia)
+- **Record types** -- immutable options (`SentinelVpnOptions`, `ConnectAutoOptions`) and results (`ConnectionResult`, `ConnectionDiagnostics`)
+- **Typed exception hierarchy** -- `SentinelException` base with `WalletException`, `ChainException`, `NodeException`, `TunnelException`, `HandshakeException`, each carrying `.Code` and `.Details`
+- **Two tunnel protocols** -- WireGuard (kernel-level, fastest) and V2Ray (userspace, no admin required) with automatic fallback
+- **42 typed error codes** -- machine-readable `.Code` on every exception, with severity levels (`fatal`, `retryable`, `recoverable`) and human-friendly messages via `ErrorSeverity.UserMessage()`
+- **17 chain message types** -- sessions, subscriptions, plans, providers, leases, fee grants, bank send
+- **Session reuse** -- detects existing active sessions to avoid double-paying
+- **409 conflict recovery** -- automatically creates new session on handshake conflict
+- **Clock drift detection** -- skips V2Ray nodes with >120s drift (VMess AEAD failure)
+- **Auto-reconnect** -- `AutoReconnect` class with exponential backoff and configurable retry policy
+- **Circuit breaker** -- `CircuitBreaker` prevents repeated connections to failing nodes
+- **Network monitor** -- `NetworkMonitor` tracks system network state changes
+- **Kill switch** -- firewall rules block all non-VPN traffic while connected
+- **DNS leak prevention** -- forces DNS through the tunnel
+- **TOFU TLS** -- trust-on-first-use certificate pinning per node
+- **LCD failover** -- automatic rotation across 4 LCD endpoints
+- **Speed testing** -- direct and SOCKS5 proxy speed measurement
+- **State persistence** -- save/load connection state across process restarts
 
-- **ConnectAsync** -- Direct connection to a specific node (pay-per-GB)
-- **ConnectAutoAsync** -- Auto-select best node with country/type filters and retry
-- **ConnectViaSubscriptionAsync** -- Connect using an existing plan subscription
-- **DisconnectAsync** -- Clean tunnel teardown
-- **Events** -- `Progress`, `Connected`, `Disconnected`, `Error` for UI binding
-- **Session reuse** -- Detects existing active sessions to avoid double-paying
-- **409 recovery** -- Automatically creates new session on handshake conflict
-- **Connection mutex** -- Prevents concurrent connect races
-- **Clock drift detection** -- Skips V2Ray nodes with >120s drift (VMess AEAD failure)
+## Project Structure
 
-### Wallet (SentinelWallet)
+```
+csharp-sdk/
+├── Sentinel.SDK.sln
+├── src/
+│   ├── Sentinel.SDK.Core/              # Foundation layer
+│   │   ├── Wallet.cs                     Key generation, BIP39/BIP44, secp256k1, Bech32
+│   │   ├── ISentinelWallet.cs            Wallet interface for testability
+│   │   ├── ChainClient.cs               LCD queries with failover + broken pagination handling
+│   │   ├── IChainClient.cs              Chain client interface for DI
+│   │   ├── TransactionBuilder.cs         SIGN_MODE_DIRECT, gas estimation, sequence recovery
+│   │   ├── MessageBuilder.cs             17 Cosmos message types (protobuf)
+│   │   ├── ProtobufWriter.cs             Low-level protobuf wire format
+│   │   ├── SentinelErrors.cs             Exception hierarchy + 42 error codes + severity map
+│   │   ├── ISdkLogger.cs                 Pluggable logger interface + Console/Null implementations
+│   │   ├── AutoReconnect.cs              Reconnection with exponential backoff
+│   │   ├── CircuitBreaker.cs             Fail-fast for repeatedly-failing nodes
+│   │   ├── NetworkMonitor.cs             System network state tracking
+│   │   ├── NodeCache.cs                  In-memory node cache with TTL
+│   │   ├── CredentialStore.cs            Encrypted credential persistence
+│   │   ├── SessionTracker.cs             Session state + payment mode tracking
+│   │   ├── StateManager.cs               Connection state persistence
+│   │   ├── VpnSettings.cs               Typed settings with defaults
+│   │   ├── SpeedTest.cs                  Direct + SOCKS5 speed measurement
+│   │   ├── DynamicTransportRates.cs      Transport reliability scoring
+│   │   ├── BatchBuilder.cs               Batch TX construction (operator use)
+│   │   ├── NodeTester.cs                 Network audit tooling (operator use)
+│   │   ├── TofuTrustStore.cs             TLS certificate pinning store
+│   │   ├── DependencyCheck.cs            Runtime dependency verification
+│   │   ├── SystemProxy.cs               System proxy configuration
+│   │   ├── Constants.cs                  Chain IDs, endpoints, gas prices
+│   │   ├── Helpers.cs                    FormatP2P, FormatBytes, ShortAddress, ...
+│   │   └── Types.cs                      Shared types, enums, records
+│   │
+│   ├── Sentinel.SDK.Node/               # Connection layer
+│   │   ├── SentinelVpnClient.cs          High-level orchestrator (Connect/Auto/Plan/Disconnect)
+│   │   ├── SentinelVpnService.cs         Background service wrapper
+│   │   ├── Handshake.cs                  V3 handshake protocol implementation
+│   │   ├── NodeClient.cs                 Node status + metadata queries
+│   │   └── SessionManager.cs             Session lifecycle + allocation tracking
+│   │
+│   └── Sentinel.SDK.Tunnel/             # Tunnel layer
+│       ├── WireGuard/
+│       │   ├── WireGuardTunnel.cs          Windows service tunnel management
+│       │   ├── KillSwitch.cs               Firewall-based traffic blocking
+│       │   └── DnsLeakPrevention.cs        DNS override + leak prevention
+│       └── V2Ray/
+│           ├── V2RayConfigBuilder.cs       JSON config matching sentinel-go-sdk format
+│           └── V2RayProcess.cs             V2Ray process lifecycle management
+│
+├── tests/
+│   └── Sentinel.SDK.Tests/              # 814+ tests across 33 test classes
+│
+└── docs/
+    ├── QUICK-START.md                   Get running in under 50 lines
+    ├── API-REFERENCE.md                 Complete public API catalog
+    └── EDGE-CASES.md                    Gotchas and production lessons learned
+```
 
-- BIP39 mnemonic generation (12/15/18/21/24 words)
-- BIP44 key derivation (`m/44'/118'/0'/0/0`)
-- secp256k1 signing (compact 64-byte signatures)
-- Bech32 address encoding (sent1, sentnode1, sentprov1)
-- Address comparison across prefixes (`IsSameKey`)
-- `IDisposable` for key material lifecycle
+## Error Handling
 
-### Chain Client (ChainClient)
+Every SDK error extends `SentinelException` with a machine-readable `.Code`:
 
-- LCD REST API queries with endpoint failover (4 LCD endpoints)
-- Automatic retry on network errors
-- Broken pagination handling (fallback to `limit=5000`)
-- Node, subscription, session, plan, and fee grant queries
-- Plan discovery by probing individual IDs
-- Available nodes through subscription lookup
+```csharp
+using Sentinel.SDK.Core;
 
-### Transaction Builder
+try
+{
+    var result = await vpn.ConnectAutoAsync(opts);
+}
+catch (NodeException ex) when (ErrorSeverity.Get(ex.Code) == "retryable")
+{
+    // Try another node
+    logger.Warn($"Retryable: {ex.Code} -- {ErrorSeverity.UserMessage(ex.Code)}");
+}
+catch (ChainException ex)
+{
+    logger.Error($"Chain error [{ex.Code}]: {ex.Message}");
+}
+catch (TunnelException ex)
+{
+    logger.Error($"Tunnel error [{ex.Code}]: {ex.Message}");
+}
+```
 
-- SIGN_MODE_DIRECT protobuf wire-format encoding
-- Automatic gas estimation per message type (1.4x safety multiplier)
-- Sequence mismatch recovery (up to 3 retries)
-- Double-spend detection before retry
-- Batch message support (multiple messages per TX)
+Exception hierarchy: `SentinelException` > `WalletException`, `ChainException`, `NodeException`, `TunnelException`, `HandshakeException`.
 
-### Message Builder (17 Message Types)
+## Message Builder (17 Message Types)
 
 | Category | Messages |
 |----------|----------|
@@ -109,87 +234,67 @@ await vpn.DisconnectAsync();
 | Bank | `Send` |
 | Fee Grant | `GrantFeeAllowance`, `RevokeFeeAllowance` |
 
-### Error Handling
+## Security
 
-- **Typed exceptions** -- `SentinelException` base with `Code`, `Details`, `Message`
-- **Hierarchy** -- `WalletException`, `ChainException`, `NodeException`, `TunnelException`, `HandshakeException`
-- **Error codes** -- Machine-readable constants (`ErrorCodes.NodeOffline`, etc.)
-- **Severity mapping** -- `ErrorSeverity.Get()` returns `"fatal"`, `"retryable"`, `"recoverable"`
-- **User messages** -- `ErrorSeverity.UserMessage()` returns UI-ready strings
+| Feature | Description |
+|---------|-------------|
+| **Kill switch** | Firewall rules block all traffic outside the VPN tunnel |
+| **DNS leak prevention** | Overrides system DNS to prevent queries outside the tunnel |
+| **TOFU TLS** | Pins node TLS certificates on first contact; alerts on change |
+| **On-chain sessions** | Session start/end recorded on the Sentinel blockchain |
+| **Key disposal** | `IDisposable` ensures wallet key material is zeroed on cleanup |
+| **No accounts** | Wallet-based authentication only. No servers, no sign-ups |
+| **No external dependencies** | Connects directly to decentralized nodes. No relay servers |
+| **Credential store** | Encrypted persistence for sensitive configuration |
 
-### Session Manager
+## Sentinel Chain v3
 
-- Find existing active sessions (avoid double-paying)
-- Query bandwidth allocation (used/max/remaining bytes)
+The SDK targets Sentinel chain v3. Key differences from v2:
 
-### Display Helpers
+- Nodes use `service_type` (not `type`) and `remote_addrs` array (not `remote_url` string)
+- Sessions are wrapped in `base_session`
+- Active node status is `status=1` (not `STATUS_ACTIVE`)
+- Provider queries remain on v2 (`/sentinel/provider/v2/`)
+- Token: **P2P** (chain denom: `udvpn`, 1 P2P = 1,000,000 udvpn)
 
-- `FormatP2P()` -- `40152030` to `"40.15 P2P"`
-- `ShortAddress()` -- Truncate bech32 addresses for display
-- `FormatBytes()` -- `1500000000` to `"1.4 GB"`
-- `FormatExpiry()` -- ISO timestamp to `"23d left"`
-- `FormatUptime()` -- TimeSpan to `"2h 15m"`
-- `ParseChainDuration()` -- `"557817.72s"` to structured data
+LCD failover endpoints (rotated automatically):
+1. `https://lcd.sentinel.co`
+2. `https://api.sentinel.quokkastake.io`
+3. `https://sentinel-api.polkachu.com`
+4. `https://sentinel.api.trivium.network:1317`
 
-### Tunnel Management
-
-- **WireGuard** -- Windows service installation, MTU 1280, keepalive 15s, admin check
-- **V2Ray** -- Process lifecycle, JSON config generation, SOCKS5 with password auth
-- **V2Ray config** -- Matches sentinel-go-sdk format exactly (non-negotiable rules)
-- **Cleanup** -- Automatic on disconnect and dispose
-
-## Requirements
-
-- .NET 8.0+
-- Windows 10/11 (for WireGuard tunnel management)
-- Admin privileges (for WireGuard service installation)
-- V2Ray 5.2.1 binary (for V2Ray nodes -- do NOT use 5.44.1+)
+| Property | Value |
+|----------|-------|
+| Chain ID | `sentinelhub-2` |
+| Denom | `udvpn` (1 P2P = 1,000,000 udvpn) |
+| HD Path | `m/44'/118'/0'/0/0` |
+| Bech32 | `sent1` (account), `sentnode1` (node), `sentprov1` (provider) |
+| Gas Price | `0.2 udvpn` per gas unit |
 
 ## Dependencies
 
 | Package | Purpose |
 |---------|---------|
 | NBitcoin | BIP39, BIP44, secp256k1, Bech32 |
-| Google.Protobuf | Protobuf message encoding (for BroadcastProtobufAsync) |
+| Google.Protobuf | Protobuf message encoding |
 | NSec.Cryptography | X25519 (Curve25519) for WireGuard key generation |
 
-## NuGet Packages (Planned)
+## Building and Testing
 
-```bash
-dotnet add package Sentinel.SDK          # Meta-package (all three)
-dotnet add package Sentinel.SDK.Core     # Wallet + chain only
-dotnet add package Sentinel.SDK.Node     # + handshake + VPN client
-dotnet add package Sentinel.SDK.Tunnel   # + WireGuard/V2Ray
-```
-
-## Building
+814+ tests across 33 test classes covering wallet operations, chain queries, transaction building, message encoding, handshake protocol, V2Ray configuration, WireGuard tunnels, error handling, session management, and live mainnet integration.
 
 ```bash
 dotnet build
 dotnet test
 ```
 
-## Chain Info
-
-| Property | Value |
-|----------|-------|
-| Chain ID | `sentinelhub-2` |
-| Cosmos SDK | `0.47.17` |
-| Denom | `udvpn` (1 P2P = 1,000,000 udvpn) |
-| HD Path | `m/44'/118'/0'/0/0` |
-| Bech32 | `sent1` (account), `sentnode1` (node), `sentprov1` (provider) |
-| Gas Price | `0.2 udvpn` per gas unit |
-
 ## Documentation
 
 - [Quick Start](docs/QUICK-START.md) -- Get running in under 50 lines
 - [API Reference](docs/API-REFERENCE.md) -- Complete public API catalog
 - [Edge Cases](docs/EDGE-CASES.md) -- Gotchas and production lessons learned
+- Protocol specs: V3-HANDSHAKE-SPEC, V2RAY-CONFIG-SPEC, WIREGUARD-CONFIG-SPEC, LCD-API-REFERENCE (see `sentinel-proto/` and SDK docs)
 
-## Protocol Specs
+## License
 
-See `sentinel-proto/` for protobuf definitions and `Sentinel SDK/docs/` for:
-- V3-HANDSHAKE-SPEC.md -- Handshake protocol
-- V2RAY-CONFIG-SPEC.md -- V2Ray transport mapping
-- WIREGUARD-CONFIG-SPEC.md -- WireGuard config mapping
-- LCD-API-REFERENCE.md -- Chain REST API reference
+[MIT](LICENSE)

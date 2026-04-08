@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 
 namespace Sentinel.SDK.Core;
 
@@ -129,22 +128,28 @@ internal record KnownVpn(string Name, string Process, string Service);
 ///
 /// Returns a structured report with severity, message, detail, action, autoFix flag.
 /// Ported from js-sdk/preflight.js (353 lines, 7 categories).
+///
+/// This is a partial class — split across:
+///   DependencyCheck.cs         — Core class, records, Preflight orchestrator, helpers
+///   DependencyCheck.Tunnels.cs — WireGuard check, V2Ray check, binary detection
+///   DependencyCheck.Cleanup.cs — Orphan tunnel cleanup, V2Ray process cleanup
+///   DependencyCheck.Network.cs — Port conflicts, VPN conflicts, admin check
 /// </summary>
-public static class DependencyCheck
+public static partial class DependencyCheck
 {
     // ─── Constants ───
 
     /// <summary>Timeout for external process calls during checks (milliseconds).</summary>
-    private const int ProcessTimeoutMs = 5000;
+    internal const int ProcessTimeoutMs = 5000;
 
     /// <summary>Expected V2Ray version string fragment.</summary>
-    private const string ExpectedV2RayVersion = "5.2.1";
+    internal const string ExpectedV2RayVersion = "5.2.1";
 
     /// <summary>
     /// Known VPN processes that conflict with WireGuard routing.
     /// Ported from js-sdk/preflight.js line 104-115.
     /// </summary>
-    private static readonly KnownVpn[] KnownVpnProcesses =
+    internal static readonly KnownVpn[] KnownVpnProcesses =
     [
         new("NordVPN",     "nordvpn",     "nordvpn-service"),
         new("ExpressVPN",  "expressvpn",  "ExpressVpnService"),
@@ -162,7 +167,7 @@ public static class DependencyCheck
     /// Common V2Ray SOCKS5 ports to check for conflicts.
     /// Ported from js-sdk/preflight.js line 154.
     /// </summary>
-    private static readonly int[] PortsToCheck = [10808, 10809, 10810];
+    internal static readonly int[] PortsToCheck = [10808, 10809, 10810];
 
     // ─── Legacy Verify (backward-compatible) ───
 
@@ -199,292 +204,6 @@ public static class DependencyCheck
             Platform: GetPlatformString(),
             Errors: errors
         );
-    }
-
-    // ─── 1. Orphaned WireGuard Tunnel Detection ───
-    // Ported from js-sdk/preflight.js line 25-50
-
-    /// <summary>
-    /// Check for orphaned WireGuard tunnels (left over from crashes).
-    /// On Windows: queries service control manager for WireGuardTunnel$wgsent* services.
-    /// On Linux/macOS: checks for wgsent* network interfaces.
-    /// Ported from js-sdk/preflight.js line 25-50.
-    /// </summary>
-    /// <returns>Detection result with tunnel names.</returns>
-    public static OrphanedTunnelResult CheckOrphanedTunnels()
-    {
-        // Ported from js-sdk/preflight.js line 25-50
-        var tunnels = new List<string>();
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Ported from js-sdk/preflight.js line 29-36
-            try
-            {
-                var output = RunProcess("sc", ["query", "type=", "service", "state=", "all"],
-                    ProcessTimeoutMs);
-                // Match WireGuardTunnel$wgsent followed by non-whitespace chars
-                // Ported from js-sdk/preflight.js line 31: services.match(/WireGuardTunnel\$wgsent\S*/g)
-                var matches = System.Text.RegularExpressions.Regex.Matches(
-                    output, @"WireGuardTunnel\$wgsent\S*");
-                foreach (System.Text.RegularExpressions.Match m in matches)
-                {
-                    // Ported from js-sdk/preflight.js line 34: s.replace('WireGuardTunnel$', '')
-                    tunnels.Add(m.Value.Replace("WireGuardTunnel$", ""));
-                }
-            }
-            catch
-            {
-                // sc query may fail — ported from js-sdk/preflight.js line 36
-            }
-        }
-        else
-        {
-            // Ported from js-sdk/preflight.js line 39-46 (Linux/macOS)
-            try
-            {
-                var output = RunProcess("ip", ["link", "show"], 3000);
-                var matches = System.Text.RegularExpressions.Regex.Matches(output, @"wgsent\d+");
-                var uniqueNames = new HashSet<string>();
-                foreach (System.Text.RegularExpressions.Match m in matches)
-                {
-                    uniqueNames.Add(m.Value);
-                }
-                tunnels.AddRange(uniqueNames);
-            }
-            catch
-            {
-                // Try ifconfig as fallback
-                try
-                {
-                    var output = RunProcess("ifconfig", [], 3000);
-                    var matches = System.Text.RegularExpressions.Regex.Matches(output, @"wgsent\d+");
-                    var uniqueNames = new HashSet<string>();
-                    foreach (System.Text.RegularExpressions.Match m in matches)
-                    {
-                        uniqueNames.Add(m.Value);
-                    }
-                    tunnels.AddRange(uniqueNames);
-                }
-                catch
-                {
-                    // ip/ifconfig may not exist — ported from js-sdk/preflight.js line 46
-                }
-            }
-        }
-
-        return new OrphanedTunnelResult(tunnels.Count > 0, [.. tunnels]);
-    }
-
-    /// <summary>
-    /// Clean up orphaned WireGuard tunnels.
-    /// Uses StateManager.RecoverOrphans internally for the actual cleanup,
-    /// then re-checks to verify removal.
-    /// Ported from js-sdk/preflight.js line 56-69.
-    /// </summary>
-    /// <returns>Cleanup result with count of removed tunnels and any errors.</returns>
-    public static CleanTunnelResult CleanOrphanedTunnels()
-    {
-        // Ported from js-sdk/preflight.js line 56-69
-        var before = CheckOrphanedTunnels();
-        if (!before.Found)
-        {
-            return new CleanTunnelResult(0, []);
-        }
-
-        // Delegate to StateManager.RecoverOrphans for the actual cleanup
-        // Ported from js-sdk/preflight.js line 60: emergencyCleanupSync()
-        StateManager.RecoverOrphans();
-
-        var after = CheckOrphanedTunnels();
-        var cleaned = before.Tunnels.Length - after.Tunnels.Length;
-        var errors = after.Found
-            ? [$"{after.Tunnels.Length} tunnel(s) could not be removed: {string.Join(", ", after.Tunnels)}"]
-            : Array.Empty<string>();
-
-        return new CleanTunnelResult(cleaned, errors);
-    }
-
-    // ─── 2. V2Ray Orphan Detection ───
-    // Ported from js-sdk/preflight.js line 77-99
-
-    /// <summary>
-    /// Check for orphaned V2Ray processes.
-    /// On Windows: uses tasklist to find v2ray.exe processes.
-    /// On Linux/macOS: uses pgrep to find v2ray processes.
-    /// Ported from js-sdk/preflight.js line 77-99.
-    /// </summary>
-    /// <returns>Detection result with process IDs.</returns>
-    public static OrphanedV2RayResult CheckOrphanedV2Ray()
-    {
-        // Ported from js-sdk/preflight.js line 77-99
-        var pids = new List<int>();
-
-        try
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // Ported from js-sdk/preflight.js line 82-87
-                var output = RunProcess("tasklist",
-                    ["/FI", "IMAGENAME eq v2ray.exe", "/NH", "/FO", "CSV"],
-                    ProcessTimeoutMs);
-                var lines = output.Split('\n')
-                    .Where(l => l.Contains("v2ray.exe", StringComparison.OrdinalIgnoreCase));
-                foreach (var line in lines)
-                {
-                    // Ported from js-sdk/preflight.js line 85: line.match(/"v2ray\.exe","(\d+)"/)
-                    var match = System.Text.RegularExpressions.Regex.Match(
-                        line, @"""v2ray\.exe"",""(\d+)""",
-                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                    if (match.Success && int.TryParse(match.Groups[1].Value, out var pid))
-                    {
-                        pids.Add(pid);
-                    }
-                }
-            }
-            else
-            {
-                // Ported from js-sdk/preflight.js line 89-93
-                try
-                {
-                    var output = RunProcess("pgrep", ["-x", "v2ray"], 3000);
-                    foreach (var line in output.Trim().Split('\n'))
-                    {
-                        if (int.TryParse(line.Trim(), out var pid))
-                        {
-                            pids.Add(pid);
-                        }
-                    }
-                }
-                catch
-                {
-                    // pgrep may not exist or return non-zero when no match
-                }
-            }
-        }
-        catch
-        {
-            // process listing may fail — ported from js-sdk/preflight.js line 95
-        }
-
-        // Ported from js-sdk/preflight.js line 97-98
-        return new OrphanedV2RayResult(pids.Count > 0, [.. pids]);
-    }
-
-    // ─── 3. Conflicting VPN Detection ───
-    // Ported from js-sdk/preflight.js line 121-145
-
-    /// <summary>
-    /// Check for running VPN software that may conflict with WireGuard routing.
-    /// Scans the running process list for 10 known VPN applications.
-    /// Ported from js-sdk/preflight.js line 121-145.
-    /// </summary>
-    /// <returns>List of detected conflicting VPNs.</returns>
-    public static VpnConflict[] CheckVpnConflicts()
-    {
-        // Ported from js-sdk/preflight.js line 121-145
-        var conflicts = new List<VpnConflict>();
-
-        try
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // Ported from js-sdk/preflight.js line 125-132
-                var tasks = RunProcess("tasklist", ["/NH", "/FO", "CSV"],
-                    ProcessTimeoutMs).ToLowerInvariant();
-                foreach (var vpn in KnownVpnProcesses)
-                {
-                    // Ported from js-sdk/preflight.js line 128
-                    if (tasks.Contains(vpn.Process.ToLowerInvariant()))
-                    {
-                        conflicts.Add(new VpnConflict(vpn.Name, true));
-                    }
-                }
-            }
-            else
-            {
-                // Ported from js-sdk/preflight.js line 134-141
-                string ps;
-                try
-                {
-                    ps = RunProcess("ps", ["aux"], 3000).ToLowerInvariant();
-                }
-                catch
-                {
-                    // Fallback: ps -ef
-                    ps = RunProcess("ps", ["-ef"], 3000).ToLowerInvariant();
-                }
-
-                foreach (var vpn in KnownVpnProcesses)
-                {
-                    if (ps.Contains(vpn.Process.ToLowerInvariant()))
-                    {
-                        conflicts.Add(new VpnConflict(vpn.Name, true));
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // tasklist/ps may fail — ported from js-sdk/preflight.js line 132
-        }
-
-        return [.. conflicts];
-    }
-
-    // ─── 4. Port Conflict Detection ───
-    // Ported from js-sdk/preflight.js line 153-176
-
-    /// <summary>
-    /// Check if common V2Ray SOCKS5 ports are in use.
-    /// Checks ports 10808, 10809, 10810.
-    /// Ported from js-sdk/preflight.js line 153-176.
-    /// </summary>
-    /// <returns>List of ports that are currently in use.</returns>
-    public static PortConflict[] CheckPortConflicts()
-    {
-        // Ported from js-sdk/preflight.js line 153-176
-        var conflicts = new List<PortConflict>();
-
-        try
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                // Ported from js-sdk/preflight.js line 159-163
-                var netstat = RunProcess("netstat", ["-ano"], ProcessTimeoutMs);
-                foreach (var port in PortsToCheck)
-                {
-                    // Ported from js-sdk/preflight.js line 161: netstat.includes(`:${port} `)
-                    if (netstat.Contains($":{port} "))
-                    {
-                        conflicts.Add(new PortConflict(port, true));
-                    }
-                }
-            }
-            else
-            {
-                // Ported from js-sdk/preflight.js line 166-171
-                foreach (var port in PortsToCheck)
-                {
-                    try
-                    {
-                        RunProcess("lsof", ["-i", $":{port}", "-t"], 3000);
-                        // If lsof succeeds (exit 0), port is in use
-                        conflicts.Add(new PortConflict(port, true));
-                    }
-                    catch
-                    {
-                        // lsof exits non-zero when port is free — ported from js-sdk/preflight.js line 170
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // netstat may fail — ported from js-sdk/preflight.js line 173
-        }
-
-        return [.. conflicts];
     }
 
     // ─── Main Preflight Check ───
@@ -729,143 +448,12 @@ public static class DependencyCheck
         );
     }
 
-    // ─── Private Helpers ───
-
-    /// <summary>
-    /// Check if WireGuard is installed on the system.
-    /// Ported from js-sdk/wireguard.js (WG_AVAILABLE constant).
-    /// </summary>
-    private static bool CheckWireGuardInstalled()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return File.Exists(@"C:\Program Files\WireGuard\wireguard.exe")
-                || File.Exists(@"C:\Program Files (x86)\WireGuard\wireguard.exe");
-        }
-
-        // Linux/macOS: check for wg-quick
-        try
-        {
-            var psi = new ProcessStartInfo("which", "wg-quick")
-            {
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            var proc = Process.Start(psi);
-            proc?.WaitForExit(3000);
-            return proc?.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Check if the current process has administrator/root privileges.
-    /// Ported from js-sdk/wireguard.js line 39 (IS_ADMIN constant).
-    /// </summary>
-    private static bool CheckIsAdmin()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            try
-            {
-                using var identity = WindowsIdentity.GetCurrent();
-                var principal = new WindowsPrincipal(identity);
-                return principal.IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        // Linux/macOS: check effective UID
-        try
-        {
-            return Environment.IsPrivilegedProcess;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Find V2Ray binary on disk or in PATH.
-    /// Ported from js-sdk/preflight.js line 224-236 (findV2Ray closure).
-    /// </summary>
-    /// <param name="customPath">Explicit path from options, checked first.</param>
-    /// <returns>Full path to v2ray binary, or null if not found.</returns>
-    private static string? FindV2Ray(string? customPath)
-    {
-        // Ported from js-sdk/preflight.js line 224-236
-        // 1. Check explicit path first
-        if (customPath is not null && File.Exists(customPath))
-            return customPath;
-
-        // 2. Check V2RAY_PATH environment variable
-        // Ported from js-sdk/preflight.js line 228: process.env.V2RAY_PATH
-        var envPath = Environment.GetEnvironmentVariable("V2RAY_PATH");
-        if (envPath is not null && File.Exists(envPath))
-            return envPath;
-
-        // 3. Check common relative and absolute paths
-        // Ported from js-sdk/preflight.js line 229-230 + original C# candidates
-        string[] candidates;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            candidates =
-            [
-                Path.Combine("bin", "v2ray.exe"),
-                Path.Combine("..", "bin", "v2ray.exe"),
-                "v2ray.exe",
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Programs", "v2ray", "v2ray.exe"),
-            ];
-        }
-        else
-        {
-            candidates =
-            [
-                Path.Combine("bin", "v2ray"),
-                Path.Combine("..", "bin", "v2ray"),
-                "/usr/local/bin/v2ray",
-                "/usr/bin/v2ray",
-                "/snap/bin/v2ray",
-            ];
-        }
-
-        var found = candidates.FirstOrDefault(File.Exists);
-        if (found is not null) return Path.GetFullPath(found);
-
-        // 4. Check PATH (where/which)
-        // Ported from js-sdk/preflight.js line 232-235
-        try
-        {
-            var cmd = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                ? "where" : "which";
-            var arg = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                ? "v2ray.exe" : "v2ray";
-            var output = RunProcess(cmd, [arg], 3000);
-            var firstLine = output.Trim().Split('\n')[0].Trim();
-            if (!string.IsNullOrEmpty(firstLine) && File.Exists(firstLine))
-                return firstLine;
-        }
-        catch
-        {
-            // where/which may fail — ported from js-sdk/preflight.js line 235
-        }
-
-        return null;
-    }
+    // ─── Shared Helpers ───
 
     /// <summary>
     /// Get the platform string for the legacy DependencyResult.
     /// </summary>
-    private static string GetPlatformString()
+    internal static string GetPlatformString()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return "windows";
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return "macos";
@@ -880,7 +468,7 @@ public static class DependencyCheck
     /// <param name="args">Arguments to pass.</param>
     /// <param name="timeoutMs">Maximum time to wait in milliseconds.</param>
     /// <returns>Standard output from the process.</returns>
-    private static string RunProcess(string fileName, string[] args, int timeoutMs)
+    internal static string RunProcess(string fileName, string[] args, int timeoutMs)
     {
         using var proc = new Process();
         proc.StartInfo = new ProcessStartInfo
