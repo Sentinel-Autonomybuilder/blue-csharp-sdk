@@ -122,9 +122,6 @@ public class WireGuardTunnel : IDisposable, IAsyncDisposable
         var confContent = BuildConfFile(config);
         await File.WriteAllTextAsync(confPath, confContent, new UTF8Encoding(false), ct);
 
-        // DEBUG: dump config for comparison
-        try { File.Copy(confPath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClaudeDVPN", "wg-config-dump.conf"), true); } catch { }
-
         // ─── Set file permissions (match JS SDK: SYSTEM + current user full control) ───
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
