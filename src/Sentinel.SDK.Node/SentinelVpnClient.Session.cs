@@ -126,14 +126,27 @@ public partial class SentinelVpnClient
     /// <returns>The on-chain session ID.</returns>
     private async Task<ulong> ExtractSessionId(TxResult txResult, CancellationToken ct = default)
     {
-        // Query active sessions for this wallet and take the latest
-        var sessions = await _chainClient.QueryActiveSessionsForAddressAsync(_wallet.Address, ct);
+        // Query active sessions with retry — LCD may lag behind chain state
+        IReadOnlyList<ActiveSession> sessions = [];
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            sessions = await _chainClient.QueryActiveSessionsForAddressAsync(_wallet.Address, ct);
+            if (sessions.Count > 0) break;
+
+            if (attempt < 2)
+            {
+                var delay = (attempt + 1) * 5;
+                _logger?.Debug($"No sessions found (attempt {attempt + 1}/3), retrying in {delay}s...");
+                EmitProgress("propagation", $"Session not yet indexed, retrying in {delay}s...");
+                await Task.Delay(delay * 1000, ct);
+            }
+        }
 
         if (sessions.Count == 0)
         {
             throw new SentinelException(
                 "SESSION_NOT_FOUND",
-                $"No active session found after TX {txResult.TxHash}. The TX may still be processing."
+                $"No active session found after TX {txResult.TxHash} after 3 attempts. The TX may still be processing."
             );
         }
 

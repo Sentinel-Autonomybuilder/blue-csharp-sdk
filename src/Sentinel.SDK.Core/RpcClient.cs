@@ -80,9 +80,9 @@ public sealed class RpcClient : IDisposable
     {
         using var ms = new MemoryStream();
         ProtobufWriter.WriteVarintField(ms, 1, (ulong)status); // status
-        // pagination (embedded message at field 2)
+        // pagination: cosmos.base.query.v1beta1.PageRequest (field 1=key, 2=offset, 3=limit)
         using var pag = new MemoryStream();
-        ProtobufWriter.WriteVarintField(pag, 2, (ulong)limit); // limit
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit); // field 3: limit (NOT field 2 which is offset)
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         return ms.ToArray();
     }
@@ -108,7 +108,7 @@ public sealed class RpcClient : IDisposable
         ProtobufWriter.WriteVarintField(ms, 1, planId); // id
         ProtobufWriter.WriteVarintField(ms, 2, (ulong)status); // status
         using var pag = new MemoryStream();
-        ProtobufWriter.WriteVarintField(pag, 2, (ulong)limit);
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit); // field 3: limit
         ProtobufWriter.WriteEmbeddedField(ms, 3, pag.ToArray()); // pagination
         return ms.ToArray();
     }
@@ -199,7 +199,7 @@ public sealed class RpcClient : IDisposable
         using var ms = new MemoryStream();
         ProtobufWriter.WriteStringField(ms, 1, address);
         using var pag = new MemoryStream();
-        ProtobufWriter.WriteVarintField(pag, 2, (ulong)limit);
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit); // field 3: limit
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         var response = await AbciQueryAsync("/sentinel.session.v3.QueryService/QuerySessionsForAccount", ms.ToArray(), ct);
         var fields = ProtobufReader.Decode(response);
@@ -216,7 +216,7 @@ public sealed class RpcClient : IDisposable
         using var ms = new MemoryStream();
         ProtobufWriter.WriteStringField(ms, 1, address);
         using var pag = new MemoryStream();
-        ProtobufWriter.WriteVarintField(pag, 2, (ulong)limit);
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit); // field 3: limit
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         var response = await AbciQueryAsync("/sentinel.subscription.v3.QueryService/QuerySubscriptionsForAccount", ms.ToArray(), ct);
         var fields = ProtobufReader.Decode(response);
