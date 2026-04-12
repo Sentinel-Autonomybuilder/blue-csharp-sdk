@@ -1,0 +1,125 @@
+<Application x:Class="HandshakeDVPN.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <!-- ═══ Handshake Black & White Theme ═══ -->
+        <SolidColorBrush x:Key="Bg0" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Bg1" Color="#FAFAFA"/>
+        <SolidColorBrush x:Key="Bg2" Color="#F2F2F2"/>
+        <SolidColorBrush x:Key="Bg3" Color="#E8E8E8"/>
+        <SolidColorBrush x:Key="Bg4" Color="#D9D9D9"/>
+        <SolidColorBrush x:Key="Bdr" Color="#E0E0E0"/>
+        <SolidColorBrush x:Key="BdrH" Color="#C0C0C0"/>
+        <SolidColorBrush x:Key="T1" Color="#000000"/>
+        <SolidColorBrush x:Key="T2" Color="#555555"/>
+        <SolidColorBrush x:Key="T3" Color="#999999"/>
+        <SolidColorBrush x:Key="Acc" Color="#000000"/>
+        <SolidColorBrush x:Key="AccDim" Color="#14000000"/>
+        <SolidColorBrush x:Key="AccLight" Color="#F0F0F0"/>
+        <SolidColorBrush x:Key="Blue" Color="#4F8FFF"/>
+        <SolidColorBrush x:Key="BlueDim" Color="#1A4F8FFF"/>
+        <SolidColorBrush x:Key="Green" Color="#22C55E"/>
+        <SolidColorBrush x:Key="GreenDim" Color="#1422C55E"/>
+        <SolidColorBrush x:Key="Red" Color="#DC2626"/>
+        <SolidColorBrush x:Key="RedDim" Color="#1ADC2626"/>
+        <SolidColorBrush x:Key="Amber" Color="#D97706"/>
+        <SolidColorBrush x:Key="AmberDim" Color="#1AD97706"/>
+
+        <!-- ─── Fonts ─── -->
+        <FontFamily x:Key="Sans">pack://application:,,,/Fonts/#Inter</FontFamily>
+        <FontFamily x:Key="Mono">Cascadia Code, Consolas, monospace</FontFamily>
+        <FontFamily x:Key="Emoji">Segoe UI Emoji</FontFamily>
+
+        <!-- ─── Primary Button (Black) ─── -->
+        <Style x:Key="BtnAcc" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource Acc}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontFamily" Value="{StaticResource Sans}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="20,11"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#333333"/></Trigger>
+                <Trigger Property="IsEnabled" Value="False"><Setter Property="Background" Value="{StaticResource Bg4}"/><Setter Property="Foreground" Value="{StaticResource T3}"/></Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ─── Ghost Button ─── -->
+        <Style x:Key="BtnGhost" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource T3}"/>
+            <Setter Property="FontFamily" Value="{StaticResource Sans}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{StaticResource Bdr}" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource T1}"/></Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ─── Light TextBox ─── -->
+        <Style x:Key="TbLight" TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource Bg0}"/>
+            <Setter Property="Foreground" Value="{StaticResource T1}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Bdr}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="FontFamily" Value="{StaticResource Mono}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="CaretBrush" Value="{StaticResource T1}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ─── Filter Button ─── -->
+        <Style x:Key="FilterBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource T3}"/>
+            <Setter Property="FontFamily" Value="{StaticResource Sans}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Padding" Value="0,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource T1}"/></Trigger>
+            </Style.Triggers>
+        </Style>
+    </Application.Resources>
+</Application>

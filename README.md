@@ -1,6 +1,6 @@
-# Sentinel dVPN SDK -- C#
+# Sentinel dVPN SDK — C# / .NET 8
 
-Complete protocol library for building decentralized VPN applications on the [Sentinel network](https://sentinel.co). WireGuard and V2Ray tunnels, wallet management, session handling, and all chain message types for Sentinel v3. .NET 8, 814+ tests, zero external service dependencies.
+Complete protocol library for building decentralized VPN applications on the [Sentinel network](https://sentinel.co) with **C# and .NET 8**. WireGuard and V2Ray tunnels, wallet management, session handling, and all chain message types for Sentinel v3. 814+ tests, zero external service dependencies. Includes a full **WPF desktop client example** with documented UI patterns.
 
 **Also available:** [JavaScript SDK](https://github.com/Sentinel-Autonomybuilder/sentinel-dvpn-sdk) | [AI Connect](https://github.com/Sentinel-Autonomybuilder/sentinel-ai-connect) (zero-config JS wrapper)
 
@@ -193,6 +193,26 @@ csharp-sdk/
     ├── API-REFERENCE.md                 Complete public API catalog
     └── EDGE-CASES.md                    Gotchas and production lessons learned
 ```
+
+## Example: Full WPF Desktop Client
+
+The [`examples/HandshakeDVPN/`](examples/HandshakeDVPN/) directory contains a complete, runnable dVPN desktop application built with WPF and .NET 8. Use it as a reference for building your own Windows desktop VPN client.
+
+**What's included (5,980 lines across 7 files):**
+
+| File | Lines | What You Learn |
+|------|-------|----------------|
+| `App.xaml` | 125 | Complete WPF theme — color tokens, font loading, reusable button/textbox styles with hover/disabled states |
+| `App.xaml.cs` | 62 | App startup, backend initialization, exception handling |
+| `MainWindow.xaml` | 583 | Full layout — sidebar node browser, connection orb, status bar, test dashboard, wallet overlay |
+| `MainWindow.xaml.cs` | 3,669 | Connection state machine, node rendering, search/filter, polling timers, speed display, animations |
+| `Services/IHnsVpnBackend.cs` | 403 | Service interface + all data models (nodes, sessions, status, pricing) |
+| `Services/NativeVpnClient.cs` | 1,076 | SDK integration — wallet, chain queries, connect/disconnect, session management, DNS config |
+| `Services/DiskCache.cs` | 62 | JSON file persistence to LocalAppData |
+
+**Features:** node browser with search/filter, animated connection orb, per-GB and per-hour pricing, real-time speed display, built-in node tester with export, Handshake DNS integration, wallet management (create/import/send), session tracking.
+
+See the [example README](examples/HandshakeDVPN/README.md) for the full architecture guide, UI structure, and code-behind patterns.
 
 ## Error Handling
 

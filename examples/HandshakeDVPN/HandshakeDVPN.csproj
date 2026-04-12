@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>HandshakeDVPN</AssemblyName>
+    <RootNamespace>HandshakeDVPN</RootNamespace>
+    <Version>1.0.0</Version>
+    <AssemblyTitle>Handshake dVPN</AssemblyTitle>
+    <Description>Decentralized VPN with Handshake DNS — powered by Sentinel Network and the P2P protocol</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Fonts\Inter-Regular.ttf" />
+    <Resource Include="Fonts\Inter-Medium.ttf" />
+    <Resource Include="Fonts\Inter-SemiBold.ttf" />
+    <Resource Include="Fonts\Inter-Bold.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Sentinel.SDK.Core\Sentinel.SDK.Core.csproj" />
+    <ProjectReference Include="..\..\src\Sentinel.SDK.Node\Sentinel.SDK.Node.csproj" />
+    <ProjectReference Include="..\..\src\Sentinel.SDK.Tunnel\Sentinel.SDK.Tunnel.csproj" />
+  </ItemGroup>
+
+</Project>
