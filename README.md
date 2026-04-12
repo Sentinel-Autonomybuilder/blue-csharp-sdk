@@ -188,6 +188,18 @@ csharp-sdk/
 ├── tests/
 │   └── Sentinel.SDK.Tests/              # 814+ tests across 33 test classes
 │
+├── desktop/
+│   └── HandshakeDVPN/                   # Full WPF desktop client (5,980 lines)
+│       ├── App.xaml                        Theme system — colors, fonts, styles
+│       ├── MainWindow.xaml                 UI layout — sidebar, orb, status bar
+│       ├── MainWindow.xaml.cs              App logic — state machine, events, polling
+│       └── Services/                       SDK integration layer
+│
+├── examples/                             # Small code snippets
+│   ├── QueryNodes/                        List active nodes
+│   ├── WalletBasics/                      Create/import wallet
+│   └── ConnectDirect/                     Connect to a specific node
+│
 └── docs/
     ├── QUICK-START.md                   Get running in under 50 lines
     ├── API-REFERENCE.md                 Complete public API catalog
@@ -196,7 +208,7 @@ csharp-sdk/
 
 ## Example: Full WPF Desktop Client
 
-The [`examples/HandshakeDVPN/`](examples/HandshakeDVPN/) directory contains a complete, runnable dVPN desktop application built with WPF and .NET 8. Use it as a reference for building your own Windows desktop VPN client.
+The [`desktop/HandshakeDVPN/`](desktop/HandshakeDVPN/) directory contains a complete, runnable dVPN desktop application built with WPF and .NET 8. Use it as a reference for building your own Windows desktop VPN client.
 
 **What's included (5,980 lines across 7 files):**
 
@@ -212,7 +224,7 @@ The [`examples/HandshakeDVPN/`](examples/HandshakeDVPN/) directory contains a co
 
 **Features:** node browser with search/filter, animated connection orb, per-GB and per-hour pricing, real-time speed display, built-in node tester with export, Handshake DNS integration, wallet management (create/import/send), session tracking.
 
-See the [example README](examples/HandshakeDVPN/README.md) for the full architecture guide, UI structure, and code-behind patterns.
+See the [desktop client README](desktop/HandshakeDVPN/README.md) for the full architecture guide, UI structure, and code-behind patterns.
 
 ## Error Handling
 
