@@ -2242,6 +2242,9 @@ public partial class MainWindow : Window
     {
         TestStatsGrid.Children.Clear();
         TestStatsGrid.ColumnDefinitions.Clear();
+        TestStatsGrid.RowDefinitions.Clear();
+        TestStatsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        TestStatsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         for (int i = 0; i < 6; i++)
             TestStatsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
@@ -2306,6 +2309,7 @@ public partial class MainWindow : Window
                 pill.Child = MakeText($"{s.SpeedMbps:F0}", 8, "Bg0", fontWeight: FontWeights.SemiBold);
                 pillRow.Children.Add(pill);
             }
+            Grid.SetRow(pillRow, 1);
             Grid.SetColumnSpan(pillRow, 6);
             TestStatsGrid.Children.Add(pillRow);
         }
