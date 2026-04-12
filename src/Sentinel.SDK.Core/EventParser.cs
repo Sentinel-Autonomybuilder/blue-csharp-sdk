@@ -78,6 +78,26 @@ public static class EventParser
         int MaxHours
     );
 
+    /// <summary>Parsed sentinel.node.v3.EventRefund.</summary>
+    public record SessionRefundEvent(long SessionId, string AccAddress, string Amount);
+
+    /// <summary>Parsed sentinel.node.v3.EventUpdateStatus.</summary>
+    public record NodeStatusEvent(string Address, int Status);
+
+    /// <summary>Parsed sentinel.session.v3.EventUpdateDetails (bandwidth report).</summary>
+    public record SessionDetailsEvent(long SessionId, string AccAddress, string NodeAddress,
+        string DownloadBytes, string UploadBytes, string Duration);
+
+    /// <summary>Parsed sentinel.subscription.v3.EventPay.</summary>
+    public record SubscriptionPayEvent(long SubscriptionId, long PlanId, string AccAddress,
+        string ProvAddress, string Payment, string StakingReward);
+
+    /// <summary>Parsed sentinel.subscription.v3.EventEnd.</summary>
+    public record SubscriptionEndEvent(long SubscriptionId, long PlanId, string AccAddress);
+
+    /// <summary>Parsed sentinel.lease.v1.EventEnd.</summary>
+    public record LeaseEndEvent(long LeaseId, string NodeAddress, string ProvAddress);
+
     // ─── Parsing Methods ───────────────────────────────────────────
 
     /// <summary>
@@ -195,6 +215,83 @@ public static class EventParser
             SubscriptionId: ParseLong(attrs.GetValueOrDefault("subscription_id")),
             AccAddress: attrs.GetValueOrDefault("acc_address") ?? "",
             NodeAddress: attrs.GetValueOrDefault("node_address") ?? ""
+        );
+    }
+
+    /// <summary>Parse a SessionRefundEvent from TX result events.</summary>
+    public static SessionRefundEvent? ParseSessionRefund(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.NodeRefund);
+        if (attrs is null) return null;
+        return new SessionRefundEvent(
+            SessionId: ParseLong(attrs.GetValueOrDefault("session_id")),
+            AccAddress: attrs.GetValueOrDefault("acc_address") ?? "",
+            Amount: attrs.GetValueOrDefault("amount") ?? attrs.GetValueOrDefault("value") ?? "0"
+        );
+    }
+
+    /// <summary>Parse a NodeStatusEvent from TX result events.</summary>
+    public static NodeStatusEvent? ParseNodeStatus(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.NodeUpdateStatus);
+        if (attrs is null) return null;
+        return new NodeStatusEvent(
+            Address: attrs.GetValueOrDefault("address") ?? "",
+            Status: int.TryParse(attrs.GetValueOrDefault("status"), out var s) ? s : 0
+        );
+    }
+
+    /// <summary>Parse a SessionDetailsEvent (bandwidth update) from TX result events.</summary>
+    public static SessionDetailsEvent? ParseSessionDetails(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.SessionUpdateDetails);
+        if (attrs is null) return null;
+        return new SessionDetailsEvent(
+            SessionId: ParseLong(attrs.GetValueOrDefault("session_id") ?? attrs.GetValueOrDefault("id")),
+            AccAddress: attrs.GetValueOrDefault("acc_address") ?? "",
+            NodeAddress: attrs.GetValueOrDefault("node_address") ?? "",
+            DownloadBytes: attrs.GetValueOrDefault("download_bytes") ?? "0",
+            UploadBytes: attrs.GetValueOrDefault("upload_bytes") ?? "0",
+            Duration: attrs.GetValueOrDefault("duration") ?? "0"
+        );
+    }
+
+    /// <summary>Parse a SubscriptionPayEvent from TX result events.</summary>
+    public static SubscriptionPayEvent? ParseSubscriptionPay(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.SubscriptionPay);
+        if (attrs is null) return null;
+        return new SubscriptionPayEvent(
+            SubscriptionId: ParseLong(attrs.GetValueOrDefault("subscription_id") ?? attrs.GetValueOrDefault("id")),
+            PlanId: ParseLong(attrs.GetValueOrDefault("plan_id")),
+            AccAddress: attrs.GetValueOrDefault("acc_address") ?? "",
+            ProvAddress: attrs.GetValueOrDefault("prov_address") ?? "",
+            Payment: attrs.GetValueOrDefault("payment") ?? "0",
+            StakingReward: attrs.GetValueOrDefault("staking_reward") ?? "0"
+        );
+    }
+
+    /// <summary>Parse a SubscriptionEndEvent from TX result events.</summary>
+    public static SubscriptionEndEvent? ParseSubscriptionEnd(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.SubscriptionEnd);
+        if (attrs is null) return null;
+        return new SubscriptionEndEvent(
+            SubscriptionId: ParseLong(attrs.GetValueOrDefault("subscription_id") ?? attrs.GetValueOrDefault("id")),
+            PlanId: ParseLong(attrs.GetValueOrDefault("plan_id")),
+            AccAddress: attrs.GetValueOrDefault("acc_address") ?? ""
+        );
+    }
+
+    /// <summary>Parse a LeaseEndEvent from TX result events.</summary>
+    public static LeaseEndEvent? ParseLeaseEnd(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.LeaseEnd);
+        if (attrs is null) return null;
+        return new LeaseEndEvent(
+            LeaseId: ParseLong(attrs.GetValueOrDefault("lease_id") ?? attrs.GetValueOrDefault("id")),
+            NodeAddress: attrs.GetValueOrDefault("node_address") ?? "",
+            ProvAddress: attrs.GetValueOrDefault("prov_address") ?? ""
         );
     }
 

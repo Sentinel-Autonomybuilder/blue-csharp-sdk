@@ -189,6 +189,60 @@ public sealed class RpcClient : IDisposable
             .ToList();
     }
 
+    /// <summary>Query sessions for an account via RPC.</summary>
+    /// <param name="address">Account address (sent1...).</param>
+    /// <param name="limit">Maximum sessions to return.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Raw protobuf session bytes (Any-encoded).</returns>
+    public async Task<List<byte[]>> QuerySessionsForAccountAsync(string address, int limit = 100, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteStringField(ms, 1, address);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 2, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
+        var response = await AbciQueryAsync("/sentinel.session.v3.QueryService/QuerySessionsForAccount", ms.ToArray(), ct);
+        var fields = ProtobufReader.Decode(response);
+        return ProtobufReader.GetFields(fields, 1).Select(f => f.Data.ToArray()).ToList();
+    }
+
+    /// <summary>Query subscriptions for an account via RPC.</summary>
+    /// <param name="address">Account address (sent1...).</param>
+    /// <param name="limit">Maximum subscriptions to return.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Raw protobuf subscription bytes.</returns>
+    public async Task<List<byte[]>> QuerySubscriptionsForAccountAsync(string address, int limit = 100, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteStringField(ms, 1, address);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 2, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
+        var response = await AbciQueryAsync("/sentinel.subscription.v3.QueryService/QuerySubscriptionsForAccount", ms.ToArray(), ct);
+        var fields = ProtobufReader.Decode(response);
+        return ProtobufReader.GetFields(fields, 1).Select(f => f.Data.ToArray()).ToList();
+    }
+
+    /// <summary>Query a single plan by ID via RPC.</summary>
+    /// <param name="planId">Plan ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Raw protobuf plan bytes, or null if not found.</returns>
+    public async Task<byte[]?> QueryPlanAsync(ulong planId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var ms = new MemoryStream();
+            ProtobufWriter.WriteVarintField(ms, 1, planId);
+            var response = await AbciQueryAsync("/sentinel.plan.v3.QueryService/QueryPlan", ms.ToArray(), ct);
+            var fields = ProtobufReader.Decode(response);
+            return ProtobufReader.GetField(fields, 1)?.Data.ToArray();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose() => _http.Dispose();
 }
