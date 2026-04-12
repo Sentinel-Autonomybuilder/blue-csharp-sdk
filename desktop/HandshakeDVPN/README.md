@@ -1,23 +1,23 @@
-# Handshake dVPN — WPF Desktop Client
+# Handshake dVPN — Example WPF Desktop Client
 
-A fully functional decentralized VPN desktop client built with **C# / WPF / .NET 8.0** on the [Sentinel Network](https://sentinel.co). Uses Handshake DNS by default for uncensorable domain resolution.
+> **This is an example application for builders, not a production release.** Use it as a starting point and reference for building your own Windows dVPN client with the Sentinel C# SDK.
 
-This repository serves as a **reference implementation** for developers building Windows desktop dVPN applications with the Sentinel C# SDK.
+A working example of a decentralized VPN desktop client built with **C# / WPF / .NET 8.0** on the [Sentinel Network](https://sentinel.co). Demonstrates how to integrate the Sentinel C# SDK into a real desktop application with a complete UI.
 
-![.NET 8.0](https://img.shields.io/badge/.NET-8.0-512BD4) ![WPF](https://img.shields.io/badge/WPF-Desktop-blue) ![Sentinel](https://img.shields.io/badge/Sentinel-dVPN-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![Example](https://img.shields.io/badge/status-example-orange) ![.NET 8.0](https://img.shields.io/badge/.NET-8.0-512BD4) ![WPF](https://img.shields.io/badge/WPF-Desktop-blue) ![Sentinel](https://img.shields.io/badge/Sentinel-dVPN-green) ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 ---
 
 ## What This Is
 
-A production-quality example of how to build a dVPN desktop app using:
+A **Windows-focused example application** that shows builders how to build a dVPN desktop app using:
 
 - **WPF (Windows Presentation Foundation)** for the UI layer
 - **Sentinel C# SDK** for blockchain interaction, node discovery, session management, and tunnel creation
 - **WireGuard + V2Ray** tunnel protocols
 - **Handshake DNS** (103.196.38.38) for decentralized name resolution through the tunnel
 
-This is not a library — it's a complete, runnable application that demonstrates every pattern you need.
+This is not a production release or a library — it's a complete, runnable example that demonstrates every pattern you need to build your own client. Fork it, rip it apart, use whatever you need.
 
 ---
 

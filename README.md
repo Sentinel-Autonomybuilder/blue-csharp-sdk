@@ -189,7 +189,7 @@ csharp-sdk/
 │   └── Sentinel.SDK.Tests/              # 814+ tests across 33 test classes
 │
 ├── desktop/
-│   └── HandshakeDVPN/                   # Full WPF desktop client (5,980 lines)
+│   └── HandshakeDVPN/                   # Example WPF desktop client — Windows (5,980 lines)
 │       ├── App.xaml                        Theme system — colors, fonts, styles
 │       ├── MainWindow.xaml                 UI layout — sidebar, orb, status bar
 │       ├── MainWindow.xaml.cs              App logic — state machine, events, polling
@@ -208,7 +208,7 @@ csharp-sdk/
 
 ## Example: Full WPF Desktop Client
 
-The [`desktop/HandshakeDVPN/`](desktop/HandshakeDVPN/) directory contains a complete, runnable dVPN desktop application built with WPF and .NET 8. Use it as a reference for building your own Windows desktop VPN client.
+The [`desktop/HandshakeDVPN/`](desktop/HandshakeDVPN/) directory contains a complete **example** Windows dVPN desktop application built with WPF and .NET 8. It is not a production release — it's a reference for builders creating their own Windows desktop VPN clients.
 
 **What's included (5,980 lines across 7 files):**
 
