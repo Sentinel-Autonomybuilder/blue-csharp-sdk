@@ -338,6 +338,23 @@ This app uses the [Sentinel C# SDK](https://github.com/Sentinel-Autonomybuilder/
 
 ---
 
+## Roadmap — Potential Production Release
+
+This is currently an example for builders. If there's community interest, a production release could include:
+
+| Feature | Description | Complexity |
+|---------|-------------|------------|
+| **Windows installer** | Inno Setup .exe — bundles app, WireGuard driver, V2Ray, .NET runtime. Start menu + auto-start. | Medium |
+| **Built-in Handshake browser** | WebView2 tab for browsing Handshake TLD sites (.forever, .badass, etc.) directly in the app. When connected, Handshake DNS resolves these automatically. | Medium |
+| **Code signing** | Signed installer removes "Unknown publisher" warning | Low (requires certificate) |
+| **Auto-updater** | Background service checks for new versions and installs silently | Medium |
+| **System tray mode** | Minimize to tray, quick connect/disconnect from tray icon | Low |
+| **Windows Service tunnel** | VPN tunnel runs as system service (survives user logout) | High |
+
+If you'd like to see this become a full release, open an issue or contribute.
+
+---
+
 ## License
 
 MIT
