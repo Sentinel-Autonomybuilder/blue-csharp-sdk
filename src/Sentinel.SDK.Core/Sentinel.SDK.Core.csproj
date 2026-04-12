@@ -4,13 +4,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Sentinel.SDK.Core</RootNamespace>
-    <PackageId>Sentinel.SDK.Core</PackageId>
-    <Version>1.0.0</Version>
-    <Authors>Sentinel dVPN Community</Authors>
-    <Description>Sentinel dVPN SDK for .NET — wallet, chain queries, transaction building</Description>
+    <PackageId>Blue.Sentinel.SDK.Core</PackageId>
+    <Version>2.0.0</Version>
+    <Authors>Blue SDK Team</Authors>
+    <Description>Blue Sentinel dVPN SDK for .NET — RPC queries, typed events, wallet, chain, transaction building. Tested on Windows.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/sentinel-official</PackageProjectUrl>
-    <PackageTags>sentinel;dvpn;vpn;blockchain;cosmos</PackageTags>
+    <PackageProjectUrl>https://github.com/Sentinel-Autonomybuilder/blue-csharp-sdk</PackageProjectUrl>
+    <PackageTags>sentinel;dvpn;vpn;blockchain;cosmos;rpc;blue;p2p</PackageTags>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NBitcoin" Version="7.*" />

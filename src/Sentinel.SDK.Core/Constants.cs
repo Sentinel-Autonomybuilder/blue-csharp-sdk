@@ -43,7 +43,7 @@ public static class Constants
     // ─── Version Info ───
 
     /// <summary>SDK version string.</summary>
-    public const string SdkVersion = "1.0.0";
+    public const string SdkVersion = "2.0.0";
 
     /// <summary>Compatible Sentinel chain version.</summary>
     public const string ChainVersion = "v12.0.0";
