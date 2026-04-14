@@ -333,7 +333,7 @@ public class ExhaustiveChainTests : IAsyncLifetime
         using var user = SentinelWallet.Generate();
         var grantMsg = MessageBuilder.GrantFeeAllowance(_opWallet!.Address, user.Address, 1_000_000);
         await _tx.BroadcastAsync(grantMsg);
-        await Task.Delay(8000);
+        await Task.Delay(12000);
 
         // Revoke
         var revokeMsg = MessageBuilder.RevokeFeeAllowance(_opWallet.Address, user.Address);
@@ -342,7 +342,7 @@ public class ExhaustiveChainTests : IAsyncLifetime
         Assert.True(r.Success, r.RawLog);
 
         // Verify revoked
-        await Task.Delay(8000);
+        await Task.Delay(12000);
         var grants = await _chain!.QueryFeeGrantsAsync(user.Address);
         _out.WriteLine($"Grants after revoke: {grants.Count}");
         Assert.Equal(0, grants.Count);
