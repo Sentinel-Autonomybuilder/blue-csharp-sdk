@@ -395,6 +395,54 @@ public sealed partial class ChainClient
         return null;
     }
 
+    // ─── Subscription Allocation Queries ───
+
+    /// <summary>
+    /// Query all bandwidth allocations for a subscription.
+    /// Used to verify that a user has been granted access to a plan subscription via sharing.
+    /// NOTE: Uses v2 endpoint because v3 returns 501 Not Implemented.
+    /// </summary>
+    /// <param name="subscriptionId">Subscription ID on chain.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>List of allocations for the subscription.</returns>
+    public async Task<List<SubscriptionAllocation>> QuerySubscriptionAllocationsAsync(
+        ulong subscriptionId, CancellationToken ct = default)
+    {
+        // NOTE: v3 endpoint for this specific query hasn't been implemented yet (returns 501).
+        // The v2 path works and returns the same allocation data. Same situation as /plan/v3/plans/{id}.
+        var path = $"/sentinel/subscription/v2/subscriptions/{subscriptionId}/allocations";
+        var allocations = new List<SubscriptionAllocation>();
+
+        try
+        {
+            var json = await LcdGetAsync(path, ct);
+
+            if (json.TryGetProperty("allocations", out var arr) &&
+                arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var a in arr.EnumerateArray())
+                {
+                    var id = a.TryGetProperty("id", out var idEl)
+                        ? idEl.GetString() ?? idEl.ToString() : "0";
+                    var address = a.TryGetProperty("address", out var addrEl)
+                        ? addrEl.GetString() ?? "" : "";
+                    var granted = a.TryGetProperty("granted_bytes", out var gEl)
+                        ? gEl.GetString() ?? "0" : "0";
+                    var utilised = a.TryGetProperty("utilised_bytes", out var uEl)
+                        ? uEl.GetString() ?? "0" : "0";
+
+                    allocations.Add(new SubscriptionAllocation(id, address, granted, utilised));
+                }
+            }
+        }
+        catch (SentinelException ex) when (ex.Code == "CLIENT_HTTP_404")
+        {
+            // No allocations found — return empty list
+        }
+
+        return allocations;
+    }
+
     // ─── Additional Query Methods ───
 
     /// <summary>

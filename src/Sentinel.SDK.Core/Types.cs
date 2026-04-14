@@ -249,4 +249,26 @@ public record AuthzGrant(string Granter, string Grantee, string MsgTypeUrl, stri
 /// <param name="AverageGbPrice">Average per-GB price in P2P tokens across all nodes with udvpn pricing.</param>
 public record NetworkOverview(int TotalNodes, Dictionary<string, int> ByCountry, decimal AverageGbPrice);
 
+// ─── Subscription Allocation ───
+
+/// <summary>
+/// A bandwidth allocation within a subscription, granting a specific address
+/// a bytes allowance. Used in plan-based sharing: the plan operator shares
+/// a subscription with a user, granting them N bytes of bandwidth.
+/// </summary>
+/// <param name="Id">Allocation ID on chain.</param>
+/// <param name="Address">Address that received the allocation (sent1...).</param>
+/// <param name="GrantedBytes">Total bytes granted as string (can be very large).</param>
+/// <param name="UtilisedBytes">Bytes already consumed as string.</param>
+public record SubscriptionAllocation(string Id, string Address, string GrantedBytes, string UtilisedBytes);
+
+/// <summary>
+/// Result of onboarding a user to a plan (subscribe + share + optional fee grant).
+/// </summary>
+/// <param name="SubscriptionId">The subscription ID created on chain.</param>
+/// <param name="SubscribeTxHash">TX hash for the subscribe-to-plan transaction.</param>
+/// <param name="ShareTxHash">TX hash for the share-subscription transaction.</param>
+/// <param name="GrantTxHash">TX hash for the fee grant transaction, or null if not requested.</param>
+public record OnboardResult(string SubscriptionId, string SubscribeTxHash, string ShareTxHash, string? GrantTxHash);
+
 // NOTE: SentinelException and all derived exception classes are now in SentinelErrors.cs

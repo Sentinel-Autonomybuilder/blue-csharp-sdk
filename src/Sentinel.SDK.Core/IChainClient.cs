@@ -168,6 +168,23 @@ public interface IChainClient
     /// <returns>List of grants expiring within the specified window.</returns>
     Task<IReadOnlyList<ExpiringGrant>> GetExpiringGrantsAsync(string address, int withinDays = 7, string role = "grantee", CancellationToken ct = default);
 
+    // ─── Operator Workflow ───
+
+    /// <summary>
+    /// Build fee grant messages for all subscribers of a plan.
+    /// </summary>
+    Task<SentinelMessage[]> BuildGrantPlanSubscribersAsync(int planId, string granterAddress, long? spendLimitUdvpn = null, DateTime? expiration = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Build messages to renew fee grants expiring within a given window.
+    /// </summary>
+    Task<SentinelMessage[]> BuildRenewExpiringGrantsAsync(string granterAddress, int withinDays = 7, long? newSpendLimitUdvpn = null, DateTime? newExpiration = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Find an existing active session between a wallet and a specific node.
+    /// </summary>
+    Task<ChainSession?> FindExistingSessionAsync(string walletAddress, string nodeAddress, CancellationToken ct = default);
+
     // ─── Provider ───
 
     /// <summary>

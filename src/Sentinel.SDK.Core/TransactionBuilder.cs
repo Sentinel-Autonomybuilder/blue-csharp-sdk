@@ -502,6 +502,107 @@ public sealed class TransactionBuilder
         return stream.ToArray();
     }
 
+    // ─── High-Level Subscription Operations ───
+
+    /// <summary>
+    /// Share a subscription's bandwidth with another address.
+    /// Builds and broadcasts a MsgShareSubscriptionRequest.
+    /// The bytes parameter specifies the bandwidth allowance (cosmossdk.io/math.Int).
+    /// NOTE: Only bytes-based sharing is supported — the chain has no time/duration field.
+    /// The operator must manage user expiry externally.
+    /// </summary>
+    /// <param name="subscriptionId">Subscription ID to share.</param>
+    /// <param name="recipientAddress">Address to share with (sent1...).</param>
+    /// <param name="bytes">Bytes of bandwidth to grant (e.g. 1073741824 for 1 GB).</param>
+    /// <returns>Transaction result with hash and success status.</returns>
+    public async Task<TxResult> ShareSubscriptionAsync(
+        ulong subscriptionId, string recipientAddress, long bytes)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(recipientAddress);
+        if (subscriptionId == 0)
+            throw new ArgumentOutOfRangeException(nameof(subscriptionId), "Must be > 0");
+        if (bytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bytes), "Must be > 0");
+
+        var msg = MessageBuilder.ShareSubscription(
+            _wallet.Address, subscriptionId, recipientAddress, bytes);
+        return await BroadcastAsync(msg);
+    }
+
+    /// <summary>
+    /// Complete "add user to plan" flow: subscribe to plan, share bandwidth with user,
+    /// and optionally grant a fee allowance so the user doesn't pay gas.
+    /// This is the primary operation for plan operators onboarding new users.
+    /// </summary>
+    /// <param name="planId">Plan ID to subscribe to.</param>
+    /// <param name="userAddress">User address to share with (sent1...).</param>
+    /// <param name="bytes">Bytes of bandwidth to grant the user.</param>
+    /// <param name="denom">Payment denomination (default: "udvpn").</param>
+    /// <param name="grantFee">If true, also grants a fee allowance to the user.</param>
+    /// <param name="feeSpendLimit">Max fee allowance in udvpn (default: 5,000,000 = 5 P2P, enough for ~125 sessions).</param>
+    /// <param name="feeExpiration">Fee grant expiration (default: null = no expiry).</param>
+    /// <returns>Onboard result with subscription ID and all TX hashes.</returns>
+    public async Task<OnboardResult> OnboardPlanUserAsync(
+        ulong planId,
+        string userAddress,
+        long bytes,
+        string denom = "udvpn",
+        bool grantFee = false,
+        long feeSpendLimit = 5_000_000,
+        DateTime? feeExpiration = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userAddress);
+        if (planId == 0)
+            throw new ArgumentOutOfRangeException(nameof(planId), "Must be > 0");
+        if (bytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bytes), "Must be > 0");
+
+        // Step 1: Subscribe to plan
+        var subMsg = MessageBuilder.StartSubscription(_wallet.Address, planId, denom);
+        var subResult = await BroadcastAsync(subMsg);
+
+        if (!subResult.Success)
+            throw new SentinelException("SUBSCRIBE_FAILED",
+                $"Subscribe to plan {planId} failed: {subResult.RawLog}");
+
+        // Step 2: Query to find the subscription ID
+        await Task.Delay(5000); // Wait for chain state to propagate
+        var subs = await _client.GetSubscriptionsAsync(_wallet.Address);
+        var match = subs
+            .Where(s => s.PlanId == planId.ToString() &&
+                        s.Status.Contains("ACTIVE", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(s => s.Id)
+            .FirstOrDefault();
+
+        var subscriptionId = match?.Id
+            ?? throw new SentinelException("SUBSCRIPTION_NOT_FOUND",
+                $"Subscription for plan {planId} not found after successful TX");
+
+        // Step 3: Share subscription with user (bytes-based)
+        if (!ulong.TryParse(subscriptionId, out var subId))
+            throw new SentinelException(ErrorCodes.SubscriptionNotFound,
+                $"Invalid subscription ID format: {subscriptionId}");
+        var shareMsg = MessageBuilder.ShareSubscription(
+            _wallet.Address, subId, userAddress, bytes);
+        var shareResult = await BroadcastAsync(shareMsg);
+
+        if (!shareResult.Success)
+            throw new SentinelException("SHARE_FAILED",
+                $"Share subscription {subscriptionId} failed: {shareResult.RawLog}");
+
+        // Step 4: Optional fee grant
+        string? grantTxHash = null;
+        if (grantFee)
+        {
+            var grantMsg = MessageBuilder.GrantFeeAllowance(
+                _wallet.Address, userAddress, feeSpendLimit, feeExpiration);
+            var grantResult = await BroadcastAsync(grantMsg);
+            grantTxHash = grantResult.TxHash;
+        }
+
+        return new OnboardResult(subscriptionId, subResult.TxHash, shareResult.TxHash, grantTxHash);
+    }
+
     // ─── Gas Estimation ───
 
     /// <summary>

@@ -3,7 +3,8 @@ using System.Text.Json;
 namespace Sentinel.SDK.Core;
 
 /// <summary>
-/// ChainClient partial — fee grant queries, issued-grant lookups, and expiry monitoring.
+/// ChainClient partial — fee grant queries, issued-grant lookups, expiry monitoring,
+/// and operator workflow helpers (grantPlanSubscribers, renewExpiringGrants, monitorFeeGrants).
 /// </summary>
 public sealed partial class ChainClient
 {
@@ -166,5 +167,108 @@ public sealed partial class ChainClient
         }
 
         return null;
+    }
+
+    // ─── Operator Workflow Functions ───
+
+    /// <summary>
+    /// Build fee grant messages for all subscribers of a plan.
+    /// Queries all subscribers, filters out the granter and already-granted addresses,
+    /// and returns batch MsgGrantAllowance messages ready for broadcast.
+    /// </summary>
+    /// <param name="planId">Plan ID whose subscribers should receive grants.</param>
+    /// <param name="granterAddress">Granter address (sent1...) — plan operator who pays gas.</param>
+    /// <param name="spendLimitUdvpn">Optional spend limit per grant in udvpn.</param>
+    /// <param name="expiration">Optional expiry date for each grant.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Array of grant messages (empty if all subscribers already have grants).</returns>
+    public async Task<SentinelMessage[]> BuildGrantPlanSubscribersAsync(
+        int planId,
+        string granterAddress,
+        long? spendLimitUdvpn = null,
+        DateTime? expiration = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(granterAddress);
+        if (planId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(planId), "Must be > 0");
+
+        // Get all subscribers, excluding the operator
+        var subscribers = await QueryPlanSubscribersAsync(planId, excludeAddress: granterAddress, ct: ct);
+        if (subscribers.Count == 0)
+            return [];
+
+        // Get existing grants issued by this granter to filter out already-granted
+        var existingGrants = await QueryFeeGrantsIssuedAsync(granterAddress, ct);
+        var alreadyGranted = new HashSet<string>(existingGrants.Select(g => g.Grantee));
+
+        var messages = new List<SentinelMessage>();
+        foreach (var sub in subscribers)
+        {
+            if (alreadyGranted.Contains(sub.Address))
+                continue;
+
+            messages.Add(MessageBuilder.GrantFeeAllowance(
+                granterAddress, sub.Address, spendLimitUdvpn, expiration));
+        }
+
+        return messages.ToArray();
+    }
+
+    /// <summary>
+    /// Build messages to renew fee grants expiring within a given window.
+    /// For each expiring grant: revokes the old one, creates a new one with fresh expiration.
+    /// </summary>
+    /// <param name="granterAddress">Granter address (sent1...).</param>
+    /// <param name="withinDays">Days ahead to check for expiring grants (default: 7).</param>
+    /// <param name="newSpendLimitUdvpn">Optional spend limit for renewed grants.</param>
+    /// <param name="newExpiration">Optional new expiration for renewed grants.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Array of revoke+grant message pairs (empty if nothing is expiring).</returns>
+    public async Task<SentinelMessage[]> BuildRenewExpiringGrantsAsync(
+        string granterAddress,
+        int withinDays = 7,
+        long? newSpendLimitUdvpn = null,
+        DateTime? newExpiration = null,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(granterAddress);
+
+        var expiring = await GetExpiringGrantsAsync(granterAddress, withinDays, role: "granter", ct: ct);
+        if (expiring.Count == 0)
+            return [];
+
+        var messages = new List<SentinelMessage>();
+        foreach (var grant in expiring)
+        {
+            // Revoke old grant
+            messages.Add(MessageBuilder.RevokeFeeAllowance(granterAddress, grant.Grantee));
+            // Re-grant with fresh expiration
+            messages.Add(MessageBuilder.GrantFeeAllowance(
+                granterAddress, grant.Grantee, newSpendLimitUdvpn, newExpiration));
+        }
+
+        return messages.ToArray();
+    }
+
+    /// <summary>
+    /// Find an existing active session between a wallet and a specific node.
+    /// Prevents double-allocation by checking before starting a new session.
+    /// </summary>
+    /// <param name="walletAddress">Account address (sent1...).</param>
+    /// <param name="nodeAddress">Node address (sentnode1...).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The existing session, or null if none found.</returns>
+    public async Task<ChainSession?> FindExistingSessionAsync(
+        string walletAddress,
+        string nodeAddress,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(walletAddress);
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeAddress);
+
+        var sessions = await GetSessionsAsync(walletAddress, status: "1", ct: ct);
+        return sessions.FirstOrDefault(s =>
+            string.Equals(s.NodeAddress, nodeAddress, StringComparison.OrdinalIgnoreCase));
     }
 }

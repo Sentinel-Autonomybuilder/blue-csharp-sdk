@@ -79,6 +79,10 @@ public static partial class MessageBuilder
     /// <summary>Cancel a subscription. Proto: sentinel.subscription.v3.MsgCancelSubscriptionRequest</summary>
     public static SentinelMessage CancelSubscription(string from, ulong subscriptionId)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(from);
+        if (subscriptionId == 0)
+            throw new ArgumentOutOfRangeException(nameof(subscriptionId), "Must be > 0");
+
         using var s = new MemoryStream();
         WriteStringField(s, 1, from);
         WriteVarintField(s, 2, subscriptionId);
@@ -88,6 +92,10 @@ public static partial class MessageBuilder
     /// <summary>Renew an expiring subscription. Proto: sentinel.subscription.v3.MsgRenewSubscriptionRequest</summary>
     public static SentinelMessage RenewSubscription(string from, ulong subscriptionId, string denom = "udvpn")
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(from);
+        if (subscriptionId == 0)
+            throw new ArgumentOutOfRangeException(nameof(subscriptionId), "Must be > 0");
+
         using var s = new MemoryStream();
         WriteStringField(s, 1, from);
         WriteVarintField(s, 2, subscriptionId);
@@ -95,20 +103,32 @@ public static partial class MessageBuilder
         return new SentinelMessage("/sentinel.subscription.v3.MsgRenewSubscriptionRequest", s.ToArray());
     }
 
-    /// <summary>Share bandwidth with another address. Proto: sentinel.subscription.v3.MsgShareSubscriptionRequest</summary>
+    /// <summary>Share bandwidth with another address. Proto: sentinel.subscription.v3.MsgShareSubscriptionRequest
+    /// Field 4 (bytes) is cosmossdk.io/math.Int — proto string type (wire type 2), NOT varint.</summary>
     public static SentinelMessage ShareSubscription(string from, ulong subscriptionId, string accAddress, long bytes)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(from);
+        if (subscriptionId == 0)
+            throw new ArgumentOutOfRangeException(nameof(subscriptionId), "Must be > 0");
+        ArgumentException.ThrowIfNullOrWhiteSpace(accAddress);
+        if (bytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(bytes), "Must be > 0");
+
         using var s = new MemoryStream();
         WriteStringField(s, 1, from);
         WriteVarintField(s, 2, subscriptionId);
         WriteStringField(s, 3, accAddress);
-        WriteVarintField(s, 4, (ulong)bytes);
+        WriteStringField(s, 4, bytes.ToString());
         return new SentinelMessage("/sentinel.subscription.v3.MsgShareSubscriptionRequest", s.ToArray());
     }
 
     /// <summary>Update subscription renewal policy. Proto: sentinel.subscription.v3.MsgUpdateSubscriptionRequest</summary>
     public static SentinelMessage UpdateSubscription(string from, ulong subscriptionId, int renewalPricePolicy)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(from);
+        if (subscriptionId == 0)
+            throw new ArgumentOutOfRangeException(nameof(subscriptionId), "Must be > 0");
+
         using var s = new MemoryStream();
         WriteStringField(s, 1, from);
         WriteVarintField(s, 2, subscriptionId);

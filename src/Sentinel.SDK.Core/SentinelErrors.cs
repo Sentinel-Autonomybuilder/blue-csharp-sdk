@@ -159,6 +159,11 @@ public static class ErrorCodes
     public const string AlreadyConnected = "ALREADY_CONNECTED";
     public const string PartialConnectionFailed = "PARTIAL_CONNECTION_FAILED";
 
+    // ─── Subscription / Plan ───
+    public const string SubscribeFailed = "SUBSCRIBE_FAILED";
+    public const string SubscriptionNotFound = "SUBSCRIPTION_NOT_FOUND";
+    public const string ShareFailed = "SHARE_FAILED";
+
     // ─── C#-specific (extras not in JS — keep for backwards compat) ───
     public const string NotConnected = "NOT_CONNECTED";
     public const string HandshakeFailed = "HANDSHAKE_FAILED";
@@ -228,6 +233,9 @@ public static class ErrorSeverity
         ErrorCodes.PartialConnectionFailed => "recoverable",
         ErrorCodes.SessionExists => "recoverable",
         ErrorCodes.HandshakeFailed => "recoverable",
+        ErrorCodes.SubscribeFailed => "retryable",
+        ErrorCodes.SubscriptionNotFound => "retryable",
+        ErrorCodes.ShareFailed => "retryable",
 
         // Infrastructure — check system state
         ErrorCodes.TlsCertChanged => "infrastructure",
@@ -283,6 +291,9 @@ public static class ErrorSeverity
         ErrorCodes.SessionPoisoned => "Session is poisoned (previously failed). Start a new session.",
         ErrorCodes.PartialConnectionFailed => "Payment succeeded but connection failed. Use recovery to retry.",
         ErrorCodes.Aborted => "Connection was cancelled.",
+        ErrorCodes.SubscribeFailed => "Failed to subscribe to the plan. Check your balance and try again.",
+        ErrorCodes.SubscriptionNotFound => "Subscription not found after payment. Check chain state.",
+        ErrorCodes.ShareFailed => "Failed to share subscription bandwidth. Try again.",
         ErrorCodes.InvalidMnemonic => "Invalid wallet phrase. Must be 12 or 24 words.",
         ErrorCodes.InvalidNodeAddress => "Invalid node address.",
         ErrorCodes.InvalidOptions => "Invalid connection options provided.",
