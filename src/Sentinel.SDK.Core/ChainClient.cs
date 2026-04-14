@@ -15,6 +15,7 @@ public sealed partial class ChainClient : IChainClient, IDisposable
     private readonly HttpClient _publicHttpClient; // CA-validated for LCD/RPC
     private readonly ISdkLogger? _logger;
     private readonly TimeSpan _timeout = TimeSpan.FromSeconds(15);
+    private readonly RpcClient _rpcClient;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -64,6 +65,9 @@ public sealed partial class ChainClient : IChainClient, IDisposable
         {
             Timeout = _timeout,
         };
+
+        // RPC client for protobuf/ABCI queries (~10x faster than LCD)
+        _rpcClient = new RpcClient(_rpcUrls, _logger);
     }
 
     // ─── Initialization ───
@@ -90,5 +94,6 @@ public sealed partial class ChainClient : IChainClient, IDisposable
     {
         _httpClient.Dispose();
         _publicHttpClient.Dispose();
+        _rpcClient.Dispose();
     }
 }

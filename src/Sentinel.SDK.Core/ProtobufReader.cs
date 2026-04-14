@@ -97,6 +97,77 @@ internal static class ProtobufReader
     }
 
     /// <summary>
+    /// Decode a ChainSession from protobuf fields.
+    /// Session v3 wraps in base_session (field 1). Base session proto:
+    /// id=1, acc_address=2, node_address=3, download_bytes=7(varint), upload_bytes=8(varint),
+    /// max_bytes=9(varint), duration=10(string), max_duration=11(string), status=14(varint),
+    /// inactive_at=15(embedded timestamp), start_at=16(embedded timestamp)
+    /// </summary>
+    internal static ChainSession DecodeSession(List<ProtoField> outerFields)
+    {
+        // Unwrap base_session (field 1) if present
+        var baseField = GetField(outerFields, 1);
+        var fields = baseField is not null ? DecodeEmbedded(baseField) : outerFields;
+
+        var id = GetField(fields, 1) is { } f1 ? f1.Varint.ToString() : "0";
+        var accAddr = GetField(fields, 2) is { } f2 ? DecodeString(f2) : "";
+        var nodeAddr = GetField(fields, 3) is { } f3 ? DecodeString(f3) : "";
+        var download = GetField(fields, 7) is { } f7 ? f7.Varint.ToString() : "0";
+        var upload = GetField(fields, 8) is { } f8 ? f8.Varint.ToString() : "0";
+        var maxBytes = GetField(fields, 9) is { } f9 ? f9.Varint.ToString() : "0";
+        var duration = GetField(fields, 10) is { } f10 ? DecodeString(f10) : null;
+        var maxDuration = GetField(fields, 11) is { } f11 ? DecodeString(f11) : null;
+        var status = GetField(fields, 14) is { } f14 ? (int)f14.Varint : 0;
+        // status: 1=active, 2=inactive_pending, 3=inactive
+        var statusStr = status switch { 1 => "active", 2 => "inactive_pending", 3 => "inactive", _ => status.ToString() };
+
+        return new ChainSession(id, accAddr, nodeAddr, download, upload, maxBytes, duration, maxDuration, statusStr, null, null);
+    }
+
+    /// <summary>
+    /// Decode a Subscription from protobuf fields.
+    /// Subscription v3 wraps in base_subscription (field 1). Base:
+    /// id=1(varint), acc_address=2(string), plan_id=4(varint), status=7(varint),
+    /// start_at=8(timestamp), inactive_at=9(timestamp)
+    /// Price is on outer field 2.
+    /// </summary>
+    internal static Subscription DecodeSubscription(List<ProtoField> outerFields)
+    {
+        var baseField = GetField(outerFields, 1);
+        var fields = baseField is not null ? DecodeEmbedded(baseField) : outerFields;
+
+        var id = GetField(fields, 1) is { } f1 ? f1.Varint.ToString() : "0";
+        var accAddr = GetField(fields, 2) is { } f2 ? DecodeString(f2) : "";
+        var planId = GetField(fields, 4) is { } f4 ? f4.Varint.ToString() : "0";
+        var status = GetField(fields, 7) is { } f7 ? (int)f7.Varint : 0;
+        var statusStr = status switch { 1 => "active", 2 => "inactive_pending", 3 => "inactive", _ => status.ToString() };
+
+        // Price is outer field 2 (on the subscription wrapper, not base)
+        PriceEntry? price = null;
+        if (GetField(outerFields, 2) is { } pf)
+        {
+            price = DecodePrice(DecodeEmbedded(pf));
+        }
+
+        return new Subscription(id, accAddr, planId, price, statusStr, "", "");
+    }
+
+    /// <summary>
+    /// Decode a Provider from protobuf fields.
+    /// Provider v2: address=1, name=2, identity=3, website=4, description=5, status=6(varint)
+    /// </summary>
+    internal static Provider DecodeProvider(List<ProtoField> fields)
+    {
+        var address = GetField(fields, 1) is { } f1 ? DecodeString(f1) : "";
+        var name = GetField(fields, 2) is { } f2 ? DecodeString(f2) : "";
+        var identity = GetField(fields, 3) is { } f3 ? DecodeString(f3) : "";
+        var website = GetField(fields, 4) is { } f4 ? DecodeString(f4) : "";
+        var description = GetField(fields, 5) is { } f5 ? DecodeString(f5) : "";
+        var status = GetField(fields, 6) is { } f6 ? (int)f6.Varint : 0;
+        return new Provider(address, name, identity, website, description, status);
+    }
+
+    /// <summary>
     /// Decode a ChainNode from protobuf fields.
     /// Node proto: address=1, gigabyte_prices=2, hourly_prices=3, remote_addrs=4, status=6
     /// </summary>

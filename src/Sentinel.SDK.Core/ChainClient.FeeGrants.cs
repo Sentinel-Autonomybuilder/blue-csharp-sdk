@@ -19,6 +19,14 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(grantee);
 
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryFeeGrantsAsync(grantee, ct: ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryFeeGrants failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/cosmos/feegrant/v1beta1/allowances/{grantee}";
         var items = await LcdPaginatedAsync(path, "allowances", ct);
 
@@ -47,6 +55,14 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(granter);
 
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryFeeGrantsIssuedAsync(granter, ct: ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryFeeGrantsIssued failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/cosmos/feegrant/v1beta1/issued/{granter}";
         var items = await LcdPaginatedAsync(path, "allowances", ct);
 

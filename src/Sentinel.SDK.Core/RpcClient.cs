@@ -189,38 +189,40 @@ public sealed class RpcClient : IDisposable
             .ToList();
     }
 
-    /// <summary>Query sessions for an account via RPC.</summary>
+    /// <summary>Query sessions for an account via RPC (typed).</summary>
     /// <param name="address">Account address (sent1...).</param>
     /// <param name="limit">Maximum sessions to return.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Raw protobuf session bytes (Any-encoded).</returns>
-    public async Task<List<byte[]>> QuerySessionsForAccountAsync(string address, int limit = 100, CancellationToken ct = default)
+    public async Task<List<ChainSession>> QuerySessionsForAccountAsync(string address, int limit = 100, CancellationToken ct = default)
     {
         using var ms = new MemoryStream();
         ProtobufWriter.WriteStringField(ms, 1, address);
         using var pag = new MemoryStream();
-        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit); // field 3: limit
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         var response = await AbciQueryAsync("/sentinel.session.v3.QueryService/QuerySessionsForAccount", ms.ToArray(), ct);
         var fields = ProtobufReader.Decode(response);
-        return ProtobufReader.GetFields(fields, 1).Select(f => f.Data.ToArray()).ToList();
+        return ProtobufReader.GetFields(fields, 1)
+            .Select(f => ProtobufReader.DecodeSession(ProtobufReader.DecodeEmbedded(f)))
+            .ToList();
     }
 
-    /// <summary>Query subscriptions for an account via RPC.</summary>
+    /// <summary>Query subscriptions for an account via RPC (typed).</summary>
     /// <param name="address">Account address (sent1...).</param>
     /// <param name="limit">Maximum subscriptions to return.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Raw protobuf subscription bytes.</returns>
-    public async Task<List<byte[]>> QuerySubscriptionsForAccountAsync(string address, int limit = 100, CancellationToken ct = default)
+    public async Task<List<Subscription>> QuerySubscriptionsForAccountAsync(string address, int limit = 100, CancellationToken ct = default)
     {
         using var ms = new MemoryStream();
         ProtobufWriter.WriteStringField(ms, 1, address);
         using var pag = new MemoryStream();
-        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit); // field 3: limit
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         var response = await AbciQueryAsync("/sentinel.subscription.v3.QueryService/QuerySubscriptionsForAccount", ms.ToArray(), ct);
         var fields = ProtobufReader.Decode(response);
-        return ProtobufReader.GetFields(fields, 1).Select(f => f.Data.ToArray()).ToList();
+        return ProtobufReader.GetFields(fields, 1)
+            .Select(f => ProtobufReader.DecodeSubscription(ProtobufReader.DecodeEmbedded(f)))
+            .ToList();
     }
 
     /// <summary>Query a single plan by ID via RPC.</summary>
@@ -241,6 +243,188 @@ public sealed class RpcClient : IDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>Query a single session by ID via RPC.</summary>
+    public async Task<ChainSession?> QuerySessionAsync(ulong sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var ms = new MemoryStream();
+            ProtobufWriter.WriteVarintField(ms, 1, sessionId);
+            var response = await AbciQueryAsync("/sentinel.session.v3.QueryService/QuerySession", ms.ToArray(), ct);
+            var fields = ProtobufReader.Decode(response);
+            var sf = ProtobufReader.GetField(fields, 1);
+            if (sf is null) return null;
+            return ProtobufReader.DecodeSession(ProtobufReader.DecodeEmbedded(sf));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Query a single subscription by ID via RPC.</summary>
+    public async Task<Subscription?> QuerySubscriptionAsync(ulong subscriptionId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var ms = new MemoryStream();
+            ProtobufWriter.WriteVarintField(ms, 1, subscriptionId);
+            var response = await AbciQueryAsync("/sentinel.subscription.v3.QueryService/QuerySubscription", ms.ToArray(), ct);
+            var fields = ProtobufReader.Decode(response);
+            var sf = ProtobufReader.GetField(fields, 1);
+            if (sf is null) return null;
+            return ProtobufReader.DecodeSubscription(ProtobufReader.DecodeEmbedded(sf));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Query a provider by address via RPC (v2 — provider not migrated to v3).</summary>
+    public async Task<Provider?> QueryProviderAsync(string provAddress, CancellationToken ct = default)
+    {
+        try
+        {
+            var request = EncodeStringRequest(1, provAddress);
+            var response = await AbciQueryAsync("/sentinel.provider.v2.QueryService/QueryProvider", request, ct);
+            var fields = ProtobufReader.Decode(response);
+            var pf = ProtobufReader.GetField(fields, 1);
+            if (pf is null) return null;
+            return ProtobufReader.DecodeProvider(ProtobufReader.DecodeEmbedded(pf));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Query fee grants received by a grantee via RPC.</summary>
+    public async Task<List<FeeGrant>> QueryFeeGrantsAsync(string grantee, int limit = 100, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteStringField(ms, 1, grantee);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
+        var response = await AbciQueryAsync("/cosmos.feegrant.v1beta1.Query/Allowances", ms.ToArray(), ct);
+        var fields = ProtobufReader.Decode(response);
+        // Each allowance is field 1 (repeated Grant message: granter=1, grantee=2, allowance=3)
+        return ProtobufReader.GetFields(fields, 1).Select(f =>
+        {
+            var gf = ProtobufReader.DecodeEmbedded(f);
+            var granter = ProtobufReader.GetField(gf, 1) is { } g1 ? ProtobufReader.DecodeString(g1) : "";
+            var granteeAddr = ProtobufReader.GetField(gf, 2) is { } g2 ? ProtobufReader.DecodeString(g2) : "";
+            // Allowance is field 3 (Any-encoded) — pass raw bytes as string for LCD compat
+            var allowance = ProtobufReader.GetField(gf, 3) is { } g3 ? (object)Convert.ToBase64String(g3.Data.ToArray()) : new object();
+            return new FeeGrant(granter, granteeAddr, allowance);
+        }).ToList();
+    }
+
+    /// <summary>Query fee grants issued by a granter via RPC.</summary>
+    public async Task<List<FeeGrant>> QueryFeeGrantsIssuedAsync(string granter, int limit = 100, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteStringField(ms, 1, granter);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
+        var response = await AbciQueryAsync("/cosmos.feegrant.v1beta1.Query/AllowancesByGranter", ms.ToArray(), ct);
+        var fields = ProtobufReader.Decode(response);
+        return ProtobufReader.GetFields(fields, 1).Select(f =>
+        {
+            var gf = ProtobufReader.DecodeEmbedded(f);
+            var granterAddr = ProtobufReader.GetField(gf, 1) is { } g1 ? ProtobufReader.DecodeString(g1) : "";
+            var granteeAddr = ProtobufReader.GetField(gf, 2) is { } g2 ? ProtobufReader.DecodeString(g2) : "";
+            var allowance = ProtobufReader.GetField(gf, 3) is { } g3 ? (object)Convert.ToBase64String(g3.Data.ToArray()) : new object();
+            return new FeeGrant(granterAddr, granteeAddr, allowance);
+        }).ToList();
+    }
+
+    /// <summary>Query authz grants between two addresses via RPC.</summary>
+    public async Task<List<AuthzGrant>> QueryAuthzGrantsAsync(string granter, string grantee, int limit = 100, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteStringField(ms, 1, granter);
+        ProtobufWriter.WriteStringField(ms, 2, grantee);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 3, pag.ToArray());
+        var response = await AbciQueryAsync("/cosmos.authz.v1beta1.Query/Grants", ms.ToArray(), ct);
+        var fields = ProtobufReader.Decode(response);
+        // Field 1 = repeated GrantAuthorization: authorization=1(Any), expiration=2(Timestamp)
+        return ProtobufReader.GetFields(fields, 1).Select(f =>
+        {
+            var gf = ProtobufReader.DecodeEmbedded(f);
+            var msgTypeUrl = "";
+            // authorization is field 1 (Any: type_url=1, value=2)
+            if (ProtobufReader.GetField(gf, 1) is { } authField)
+            {
+                var authFields = ProtobufReader.DecodeEmbedded(authField);
+                if (ProtobufReader.GetField(authFields, 1) is { } typeUrlField)
+                    msgTypeUrl = ProtobufReader.DecodeString(typeUrlField);
+                // For GenericAuthorization, the inner value has msg=1
+                if (ProtobufReader.GetField(authFields, 2) is { } valueField)
+                {
+                    var innerFields = ProtobufReader.DecodeEmbedded(valueField);
+                    if (ProtobufReader.GetField(innerFields, 1) is { } msgField)
+                        msgTypeUrl = ProtobufReader.DecodeString(msgField);
+                }
+            }
+            // expiration is field 2 (Timestamp: seconds=1, nanos=2) — just note presence
+            string? expiration = null;
+            if (ProtobufReader.GetField(gf, 2) is { } expField)
+            {
+                var expFields = ProtobufReader.DecodeEmbedded(expField);
+                var seconds = ProtobufReader.GetField(expFields, 1)?.Varint ?? 0;
+                if (seconds > 0)
+                    expiration = DateTimeOffset.FromUnixTimeSeconds((long)seconds).ToString("o");
+            }
+            return new AuthzGrant(granter, grantee, msgTypeUrl, expiration);
+        }).ToList();
+    }
+
+    /// <summary>Query subscription allocations via RPC.</summary>
+    public async Task<List<SubscriptionAllocation>> QuerySubscriptionAllocationsAsync(ulong subscriptionId, int limit = 100, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteVarintField(ms, 1, subscriptionId);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
+        // NOTE: v3 returns 501 for allocations, try v2 first
+        try
+        {
+            var response = await AbciQueryAsync("/sentinel.subscription.v2.QueryService/QueryAllocations", ms.ToArray(), ct);
+            var fields = ProtobufReader.Decode(response);
+            return ProtobufReader.GetFields(fields, 1).Select(f =>
+            {
+                var af = ProtobufReader.DecodeEmbedded(f);
+                var id = ProtobufReader.GetField(af, 1) is { } f1 ? ProtobufReader.DecodeString(f1) : "0";
+                var address = ProtobufReader.GetField(af, 2) is { } f2 ? ProtobufReader.DecodeString(f2) : "";
+                var granted = ProtobufReader.GetField(af, 3) is { } f3 ? ProtobufReader.DecodeString(f3) : "0";
+                var utilised = ProtobufReader.GetField(af, 4) is { } f4 ? ProtobufReader.DecodeString(f4) : "0";
+                return new SubscriptionAllocation(id, address, granted, utilised);
+            }).ToList();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Query session allocations via RPC (for session bandwidth tracking).</summary>
+    public async Task<RawSessionAllocation?> QuerySessionAllocationAsync(ulong sessionId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var ms = new MemoryStream();
+            ProtobufWriter.WriteVarintField(ms, 1, sessionId);
+            var response = await AbciQueryAsync("/sentinel.session.v3.QueryService/QueryAllocations", ms.ToArray(), ct);
+            var fields = ProtobufReader.Decode(response);
+            var allocs = ProtobufReader.GetFields(fields, 1);
+            if (allocs.Count == 0) return null;
+            var af = ProtobufReader.DecodeEmbedded(allocs[0]);
+            var granted = ProtobufReader.GetField(af, 3) is { } f3 ? ProtobufReader.DecodeString(f3) : "0";
+            var utilised = ProtobufReader.GetField(af, 4) is { } f4 ? ProtobufReader.DecodeString(f4) : "0";
+            if (long.TryParse(granted, out var maxBytes) && long.TryParse(utilised, out var usedBytes))
+                return new RawSessionAllocation(maxBytes, usedBytes);
+            return null;
+        }
+        catch { return null; }
     }
 
     /// <inheritdoc />

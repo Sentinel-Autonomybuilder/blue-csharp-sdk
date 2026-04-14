@@ -20,6 +20,14 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(address);
 
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryBalanceAsync(address, Constants.Denom, ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetBalance failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/cosmos/bank/v1beta1/balances/{address}/by_denom?denom={Constants.Denom}";
         var json = await LcdGetAsync(path, ct);
 
@@ -43,6 +51,14 @@ public sealed partial class ChainClient
     /// <returns>List of active chain nodes.</returns>
     public async Task<List<ChainNode>> GetActiveNodesAsync(int limit = 500, CancellationToken ct = default)
     {
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryNodesAsync(1, limit, ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetActiveNodes failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/node/v3/nodes?status=1&pagination.limit={limit}";
         var items = await LcdPaginatedAsync(path, "nodes", ct);
         return items.Select(ParseChainNode).ToList();
@@ -57,6 +73,14 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(nodeAddress);
 
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryNodeAsync(nodeAddress, ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetNode failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         try
         {
             var path = $"/sentinel/node/v3/nodes/{nodeAddress}";
@@ -84,6 +108,14 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(address);
 
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QuerySubscriptionsForAccountAsync(address, ct: ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetSubscriptions failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/subscription/v3/accounts/{address}/subscriptions";
         var items = await LcdPaginatedAsync(path, "subscriptions", ct);
         return items.Select(ParseSubscription).ToList();
@@ -99,7 +131,18 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(address);
 
-        // MUST use /accounts/{addr}/sessions — query-param format returns ALL sessions unfiltered
+        // RPC-first
+        try
+        {
+            var sessions = await _rpcClient.QuerySessionsForAccountAsync(address, ct: ct);
+            // Filter by status if specified (RPC returns all statuses)
+            if (status == "1")
+                return sessions.Where(s => s.Status == "active" || s.Status == "1").ToList();
+            return sessions;
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetSessions failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback — MUST use /accounts/{addr}/sessions path
         var path = $"/sentinel/session/v3/accounts/{address}/sessions?status={status}";
         var items = await LcdPaginatedAsync(path, "sessions", ct);
         return items.Select(ParseChainSession).ToList();
@@ -113,6 +156,14 @@ public sealed partial class ChainClient
     /// <returns>List of nodes in the plan.</returns>
     public async Task<List<ChainNode>> GetPlanNodesAsync(int planId, CancellationToken ct = default)
     {
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryNodesForPlanAsync((ulong)planId, 1, 5000, ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetPlanNodes failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/node/v3/plans/{planId}/nodes?pagination.limit=5000";
         var items = await LcdPaginatedAsync(path, "nodes", ct);
         return items.Select(ParseChainNode).ToList();
@@ -347,14 +398,27 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(walletAddress);
 
-        // MUST use /accounts/{addr}/sessions — the query-param format returns ALL sessions unfiltered
+        // RPC-first
+        try
+        {
+            var rpcSessions = await _rpcClient.QuerySessionsForAccountAsync(walletAddress, ct: ct);
+            return rpcSessions
+                .Where(s => s.Status == "active" || s.Status == "1")
+                .Select(s => new ActiveSession(
+                    ulong.TryParse(s.Id, out var sid) ? sid : 0,
+                    s.NodeAddress,
+                    SessionStatus.Active))
+                .ToList();
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryActiveSessions failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/session/v3/accounts/{walletAddress}/sessions?status=1";
         var items = await LcdPaginatedAsync(path, "sessions", ct);
         var sessions = new List<ActiveSession>();
 
         foreach (var s in items)
         {
-            // v3 sessions wrap fields in base_session
             var bs = s.TryGetProperty("base_session", out var baseEl) ? baseEl : s;
             var idStr = bs.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "0" : "0";
             var nodeAddr = bs.TryGetProperty("node_address", out var naEl) ? naEl.GetString() ?? "" : "";
@@ -375,6 +439,15 @@ public sealed partial class ChainClient
     /// <inheritdoc />
     public async Task<RawSessionAllocation?> QuerySessionAllocationAsync(ulong sessionId, CancellationToken ct = default)
     {
+        // RPC-first
+        try
+        {
+            var result = await _rpcClient.QuerySessionAllocationAsync(sessionId, ct);
+            if (result is not null) return result;
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QuerySessionAllocation failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/session/v3/sessions/{sessionId}/allocations";
         var json = await LcdGetAsync(path, ct);
 
@@ -408,8 +481,14 @@ public sealed partial class ChainClient
     public async Task<List<SubscriptionAllocation>> QuerySubscriptionAllocationsAsync(
         ulong subscriptionId, CancellationToken ct = default)
     {
-        // NOTE: v3 endpoint for this specific query hasn't been implemented yet (returns 501).
-        // The v2 path works and returns the same allocation data. Same situation as /plan/v3/plans/{id}.
+        // RPC-first (v2 — v3 returns 501)
+        try
+        {
+            return await _rpcClient.QuerySubscriptionAllocationsAsync(subscriptionId, ct: ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QuerySubAllocations failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback (v2 path — v3 returns 501)
         var path = $"/sentinel/subscription/v2/subscriptions/{subscriptionId}/allocations";
         var allocations = new List<SubscriptionAllocation>();
 
@@ -453,6 +532,14 @@ public sealed partial class ChainClient
     /// <returns>List of nodes in the plan.</returns>
     public async Task<List<ChainNode>> QueryPlanNodesAsync(int planId, CancellationToken ct = default)
     {
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryNodesForPlanAsync((ulong)planId, 1, 5000, ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryPlanNodes failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/node/v3/plans/{planId}/nodes?pagination.limit=5000";
         var items = await LcdPaginatedAsync(path, "nodes", ct);
         return items.Select(ParseChainNode).ToList();
@@ -546,6 +633,15 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(provAddress);
 
+        // RPC-first (v2 — provider not migrated to v3)
+        try
+        {
+            var result = await _rpcClient.QueryProviderAsync(provAddress, ct);
+            if (result is not null) return result;
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC GetProvider failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         try
         {
             var path = $"/sentinel/provider/v2/providers/{provAddress}";
@@ -584,6 +680,17 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(id);
 
+        // RPC-first
+        if (ulong.TryParse(id, out var subId))
+        {
+            try
+            {
+                return await _rpcClient.QuerySubscriptionAsync(subId, ct);
+            }
+            catch (Exception ex) { _logger?.Debug($"RPC GetSubscription failed, falling back to LCD: {ex.Message}"); }
+        }
+
+        // LCD fallback
         try
         {
             var path = $"/sentinel/subscription/v3/subscriptions/{id}";
@@ -813,6 +920,14 @@ public sealed partial class ChainClient
         ArgumentException.ThrowIfNullOrWhiteSpace(granter);
         ArgumentException.ThrowIfNullOrWhiteSpace(grantee);
 
+        // RPC-first
+        try
+        {
+            return await _rpcClient.QueryAuthzGrantsAsync(granter, grantee, ct: ct);
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryAuthzGrants failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/cosmos/authz/v1beta1/grants?granter={granter}&grantee={grantee}";
         var grants = new List<AuthzGrant>();
 
@@ -833,7 +948,6 @@ public sealed partial class ChainClient
                         if (auth.TryGetProperty("@type", out var typeProp))
                             msgTypeUrl = typeProp.GetString() ?? "";
 
-                        // GenericAuthorization has msg field
                         if (auth.TryGetProperty("msg", out var msgProp))
                             msgTypeUrl = msgProp.GetString() ?? msgTypeUrl;
                     }
