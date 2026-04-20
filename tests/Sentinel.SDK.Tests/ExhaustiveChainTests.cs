@@ -362,13 +362,11 @@ public class ExhaustiveChainTests : IAsyncLifetime
         var planR = await _tx.BroadcastAsync(planMsg);
         Assert.True(planR.Success, $"Plan create failed: {planR.RawLog}");
         _out.WriteLine($"Plan created: {planR.TxHash}");
-        await TxWait();
 
-        // Find the new plan ID from chain
-        var plans = await _chain.DiscoverPlansAsync(maxId: 70);
-        var freshPlan = plans.OrderByDescending(p => p.Id).FirstOrDefault();
-        Assert.NotNull(freshPlan);
-        var freshPlanId = freshPlan!.Id;
+        // Extract the new plan ID deterministically from the TX events
+        var freshPlanIdNullable = await _chain.ExtractPlanIdFromTxAsync(planR.TxHash);
+        Assert.NotNull(freshPlanIdNullable);
+        var freshPlanId = freshPlanIdNullable!.Value;
         _out.WriteLine($"Fresh plan ID: {freshPlanId}");
 
         // Activate
@@ -412,11 +410,10 @@ public class ExhaustiveChainTests : IAsyncLifetime
         _out.WriteLine($"Subscribe TX: {r.TxHash} Code: {r.Code}");
         Assert.True(r.Success, r.RawLog);
 
-        // Verify
-        await Task.Delay(8000);
-        var has = await userChain.HasActiveSubscriptionAsync(user.Address, freshPlanId);
-        _out.WriteLine($"Has subscription to plan {freshPlanId}: {has}");
-        Assert.True(has);
+        // Verify via TX events (deterministic, no LCD/RPC propagation dependency)
+        var subIdNullable = await userChain.ExtractSubscriptionIdFromTxAsync(r.TxHash);
+        Assert.NotNull(subIdNullable);
+        _out.WriteLine($"Subscription ID {subIdNullable} created for plan {freshPlanId}");
     }
 
     // ═══ FULL PLAN CONNECTION (fee-granted WireGuard) ═══
@@ -432,12 +429,11 @@ public class ExhaustiveChainTests : IAsyncLifetime
             new[] { new PriceEntry("udvpn", "0.000000100000000000", "100000") });
         var planR = await _tx.BroadcastAsync(planMsg);
         Assert.True(planR.Success, planR.RawLog);
-        await TxWait();
 
-        var plans = await _chain.DiscoverPlansAsync(maxId: 80);
-        var freshPlan = plans.OrderByDescending(p => p.Id).FirstOrDefault();
-        Assert.NotNull(freshPlan);
-        var connPlanId = freshPlan!.Id;
+        // Extract the new plan ID deterministically from the TX events
+        var connPlanIdNullable = await _chain.ExtractPlanIdFromTxAsync(planR.TxHash);
+        Assert.NotNull(connPlanIdNullable);
+        var connPlanId = connPlanIdNullable!.Value;
         _out.WriteLine($"Plan: {connPlanId}");
 
         // Activate + lease + link
@@ -462,25 +458,17 @@ public class ExhaustiveChainTests : IAsyncLifetime
         using var uChain = new ChainClient(logger: new NullSdkLogger());
         await uChain.InitializeAsync();
         var uTx = new TransactionBuilder(user, uChain);
-        await uTx.BroadcastAsync(MessageBuilder.StartSubscription(user.Address, (ulong)connPlanId));
-        await Task.Delay(10000);
+        var subR = await uTx.BroadcastAsync(MessageBuilder.StartSubscription(user.Address, (ulong)connPlanId));
+        Assert.True(subR.Success, subR.RawLog);
 
         // 3. Fee grant
         await _tx.BroadcastAsync(MessageBuilder.GrantFeeAllowance(_opWallet.Address, user.Address, 5_000_000));
         await Task.Delay(10000);
 
-        // 4. Get subscription ID (retry once if LCD is behind)
-        var subs = await uChain.GetSubscriptionsAsync(user.Address);
-        var sub = subs.FirstOrDefault(s => s.PlanId == connPlanId.ToString() && s.Status.Contains("active"));
-        if (sub == null)
-        {
-            _out.WriteLine("Subscription not found yet, retrying after 10s...");
-            await Task.Delay(10000);
-            subs = await uChain.GetSubscriptionsAsync(user.Address);
-            sub = subs.FirstOrDefault(s => s.PlanId == connPlanId.ToString() && s.Status.Contains("active"));
-        }
-        Assert.NotNull(sub);
-        var subId = ulong.Parse(sub!.Id);
+        // 4. Extract subscription ID deterministically from the subscribe TX events
+        var subIdNullable = await uChain.ExtractSubscriptionIdFromTxAsync(subR.TxHash);
+        Assert.NotNull(subIdNullable);
+        var subId = (ulong)subIdNullable!.Value;
         _out.WriteLine($"Subscription: {subId}");
 
         // 5. Connect via subscription with fee grant

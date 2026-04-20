@@ -26,6 +26,10 @@ public static class EventParser
         public const string SubscriptionEnd = "sentinel.subscription.v3.EventEnd";
         public const string LeaseCreate = "sentinel.lease.v1.EventCreate";
         public const string LeaseEnd = "sentinel.lease.v1.EventEnd";
+        public const string PlanCreate = "sentinel.plan.v3.EventCreate";
+        public const string PlanUpdateStatus = "sentinel.plan.v3.EventUpdateStatus";
+        public const string PlanLinkNode = "sentinel.plan.v3.EventLinkNode";
+        public const string PlanUnlinkNode = "sentinel.plan.v3.EventUnlinkNode";
     }
 
     // ─── Parsed Event Records ──────────────────────────────────────
@@ -293,6 +297,26 @@ public static class EventParser
             NodeAddress: attrs.GetValueOrDefault("node_address") ?? "",
             ProvAddress: attrs.GetValueOrDefault("prov_address") ?? ""
         );
+    }
+
+    /// <summary>Extract plan_id from a <c>sentinel.plan.v3.EventCreate</c> in a TX's events JSON.</summary>
+    public static long? ExtractPlanIdFromEvents(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.PlanCreate);
+        if (attrs is null) return null;
+        var raw = attrs.GetValueOrDefault("id") ?? attrs.GetValueOrDefault("plan_id");
+        if (string.IsNullOrEmpty(raw)) return null;
+        return long.TryParse(raw.Trim('"'), out var id) && id > 0 ? id : null;
+    }
+
+    /// <summary>Extract subscription_id from a <c>sentinel.subscription.v3.EventCreate</c> in a TX's events JSON.</summary>
+    public static long? ExtractSubscriptionIdFromEvents(string? txEventsJson)
+    {
+        var attrs = FindEvent(txEventsJson, EventTypes.SubscriptionCreate);
+        if (attrs is null) return null;
+        var raw = attrs.GetValueOrDefault("id") ?? attrs.GetValueOrDefault("subscription_id");
+        if (string.IsNullOrEmpty(raw)) return null;
+        return long.TryParse(raw.Trim('"'), out var id) && id > 0 ? id : null;
     }
 
     // ─── Helpers ───────────────────────────────────────────────────

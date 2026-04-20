@@ -309,12 +309,27 @@ public sealed partial class ChainClient
     }
 
     /// <summary>
-    /// Broadcast a raw transaction to the chain via LCD.
+    /// Broadcast a raw transaction to the chain. Tries Tendermint RPC
+    /// <c>broadcast_tx_sync</c> first; falls back to LCD <c>/cosmos/tx/v1beta1/txs</c> on
+    /// failure or unrecognizable RPC response.
     /// </summary>
     /// <param name="txBytes">Serialized TxRaw bytes.</param>
+    /// <param name="ct">Cancellation token.</param>
     /// <returns>Transaction result.</returns>
     internal async Task<TxResult> BroadcastTxAsync(byte[] txBytes, CancellationToken ct = default)
     {
+        // RPC-first: broadcast_tx_sync is lower-latency than LCD and avoids REST overhead.
+        try
+        {
+            var rpcResult = await _rpcClient.BroadcastTxAsync(txBytes, ct);
+            if (rpcResult is not null) return rpcResult;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Debug($"RPC broadcast failed, falling back to LCD: {ex.Message}");
+        }
+
+        // LCD fallback
         var base64Tx = Convert.ToBase64String(txBytes);
         var payload = new { tx_bytes = base64Tx, mode = "BROADCAST_MODE_SYNC" };
 
@@ -356,17 +371,30 @@ public sealed partial class ChainClient
         }
 
         throw new SentinelException("CLIENT_BROADCAST_FAILED",
-            $"All LCD endpoints failed to broadcast: {lastException?.Message}", lastException!);
+            $"All RPC and LCD endpoints failed to broadcast: {lastException?.Message}", lastException!);
     }
 
     /// <summary>
-    /// Query a transaction by hash from the LCD.
+    /// Query a transaction by hash. Tries Tendermint RPC <c>tx</c> method first; falls back
+    /// to LCD <c>/cosmos/tx/v1beta1/txs/{hash}</c> if RPC returns nothing.
     /// </summary>
     /// <param name="txHash">Transaction hash (hex).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Transaction result if found, or null if not found.</returns>
     internal async Task<TxResult?> QueryTxAsync(string txHash, CancellationToken ct = default)
     {
+        // RPC-first: avoids LCD propagation lag for double-spend guard checks.
+        try
+        {
+            var rpcResult = await _rpcClient.QueryTxAsync(txHash, ct);
+            if (rpcResult is not null) return rpcResult;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Debug($"RPC QueryTx failed for {txHash}, falling back to LCD: {ex.Message}");
+        }
+
+        // LCD fallback
         try
         {
             var path = $"/cosmos/tx/v1beta1/txs/{txHash}";
@@ -389,6 +417,134 @@ public sealed partial class ChainClient
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Query a TX by hash and return the top-level <c>events</c> array as JSON text.
+    /// Modern Cosmos SDK emits events directly on <c>tx_response.events</c>; raw_log can be
+    /// empty. This method returns whichever is populated, normalized to the array format
+    /// expected by <see cref="EventParser.FindEvent"/>.
+    /// </summary>
+    private async Task<string?> QueryTxEventsJsonAsync(string txHash, CancellationToken ct)
+    {
+        // RPC-first: Tendermint tx method returns events directly, no LCD propagation lag.
+        try
+        {
+            var rpcEvents = await _rpcClient.QueryTxEventsJsonAsync(txHash, ct);
+            if (!string.IsNullOrEmpty(rpcEvents)) return rpcEvents;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Debug($"RPC tx events failed for {txHash}, falling back to LCD: {ex.Message}");
+        }
+
+        try
+        {
+            var path = $"/cosmos/tx/v1beta1/txs/{txHash}";
+            var json = await LcdGetAsync(path, ct);
+            if (!json.TryGetProperty("tx_response", out var txResponse)) return null;
+
+            // Prefer tx_response.events (top-level, modern)
+            if (txResponse.TryGetProperty("events", out var eventsTop) &&
+                eventsTop.ValueKind == JsonValueKind.Array &&
+                eventsTop.GetArrayLength() > 0)
+            {
+                return eventsTop.GetRawText();
+            }
+
+            // Fallback: raw_log is a JSON string containing log entries with events
+            if (txResponse.TryGetProperty("raw_log", out var rl))
+            {
+                var raw = rl.GetString();
+                if (string.IsNullOrEmpty(raw)) return null;
+                try
+                {
+                    using var logDoc = JsonDocument.Parse(raw);
+                    if (logDoc.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var combined = new List<JsonElement>();
+                        foreach (var entry in logDoc.RootElement.EnumerateArray())
+                        {
+                            if (entry.TryGetProperty("events", out var evs) &&
+                                evs.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var ev in evs.EnumerateArray()) combined.Add(ev);
+                            }
+                        }
+                        if (combined.Count == 0) return null;
+                        using var ms = new System.IO.MemoryStream();
+                        using (var writer = new Utf8JsonWriter(ms))
+                        {
+                            writer.WriteStartArray();
+                            foreach (var ev in combined) ev.WriteTo(writer);
+                            writer.WriteEndArray();
+                        }
+                        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                    }
+                }
+                catch { /* raw_log not JSON — return as-is for regex fallback */ }
+                return raw;
+            }
+            return null;
+        }
+        catch (SentinelException ex) when (ex.Code == "CLIENT_HTTP_404") { return null; }
+    }
+
+    /// <inheritdoc />
+    public async Task<long?> ExtractPlanIdFromTxAsync(string txHash, int timeoutMs = 20000, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(txHash);
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var eventsJson = await QueryTxEventsJsonAsync(txHash, ct);
+            if (!string.IsNullOrEmpty(eventsJson))
+            {
+                var id = EventParser.ExtractPlanIdFromEvents(eventsJson);
+                if (id is > 0) return id;
+            }
+            await Task.Delay(2000, ct);
+        }
+        return null;
+    }
+
+    /// <inheritdoc />
+    public async Task<long?> ExtractSubscriptionIdFromTxAsync(string txHash, int timeoutMs = 20000, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(txHash);
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var eventsJson = await QueryTxEventsJsonAsync(txHash, ct);
+            if (!string.IsNullOrEmpty(eventsJson))
+            {
+                var id = EventParser.ExtractSubscriptionIdFromEvents(eventsJson);
+                if (id is > 0) return id;
+            }
+            await Task.Delay(2000, ct);
+        }
+        return null;
+    }
+
+    /// <inheritdoc />
+    public async Task<long?> ExtractSessionIdFromTxAsync(string txHash, int timeoutMs = 20000, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(txHash);
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var eventsJson = await QueryTxEventsJsonAsync(txHash, ct);
+            if (!string.IsNullOrEmpty(eventsJson))
+            {
+                var id = EventParser.ExtractSessionId(eventsJson);
+                if (id is > 0) return id;
+            }
+            await Task.Delay(2000, ct);
+        }
+        return null;
     }
 
     // ─── IChainClient: Session Queries ───

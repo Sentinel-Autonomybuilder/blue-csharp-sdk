@@ -118,15 +118,21 @@ public partial class SentinelVpnClient
     }
 
     /// <summary>
-    /// Extract the session ID from a broadcast TX result.
-    /// Queries the chain for the wallet's active sessions and returns the most recent one.
+    /// Extract the session ID from a broadcast TX result by reading its events directly
+    /// (deterministic — no dependency on LCD/RPC active-session propagation). Falls back to
+    /// polling active sessions only if event extraction fails.
     /// </summary>
-    /// <param name="txResult">The broadcast result (used for error context).</param>
+    /// <param name="txResult">The broadcast result (TX hash + raw log).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The on-chain session ID.</returns>
     private async Task<ulong> ExtractSessionId(TxResult txResult, CancellationToken ct = default)
     {
-        // Query active sessions with retry — LCD may lag behind chain state
+        // Primary: parse session ID directly from TX events (deterministic, no LCD lag).
+        var idFromEvents = await _chainClient.ExtractSessionIdFromTxAsync(txResult.TxHash, timeoutMs: 20000, ct);
+        if (idFromEvents is > 0) return (ulong)idFromEvents.Value;
+
+        // Fallback: poll active sessions for the wallet (covers rare cases where the TX
+        // indexer lags behind the session store).
         IReadOnlyList<ActiveSession> sessions = [];
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -146,11 +152,10 @@ public partial class SentinelVpnClient
         {
             throw new SentinelException(
                 "SESSION_NOT_FOUND",
-                $"No active session found after TX {txResult.TxHash} after 3 attempts. The TX may still be processing."
+                $"No active session found after TX {txResult.TxHash} — events did not contain a session ID and active-session query was empty after 3 attempts."
             );
         }
 
-        // Return the highest (most recent) session ID
         ulong maxId = 0;
         foreach (var session in sessions)
         {

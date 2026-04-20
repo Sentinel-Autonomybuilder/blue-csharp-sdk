@@ -246,6 +246,45 @@ public interface IChainClient
     /// <returns>List of authz grants from granter to grantee.</returns>
     Task<IReadOnlyList<AuthzGrant>> QueryAuthzGrantsAsync(string granter, string grantee, CancellationToken ct = default);
 
+    // ─── TX Event Extraction ───
+
+    /// <summary>
+    /// Extract the plan ID created by a <c>MsgCreatePlan</c> transaction.
+    /// Queries the TX by hash, parses <c>sentinel.plan.v3.EventCreate</c>, and returns the new plan ID.
+    /// Use this instead of <see cref="DiscoverPlansAsync"/> — a freshly-created plan with no
+    /// subscribers or linked nodes will NOT appear in discovery.
+    /// Polls briefly for LCD propagation.
+    /// </summary>
+    /// <param name="txHash">Transaction hash of the <c>MsgCreatePlan</c> broadcast.</param>
+    /// <param name="timeoutMs">How long to wait for the TX to appear in LCD (default: 20000).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The plan ID, or null if the event wasn't found within the timeout.</returns>
+    Task<long?> ExtractPlanIdFromTxAsync(string txHash, int timeoutMs = 20000, CancellationToken ct = default);
+
+    /// <summary>
+    /// Extract the subscription ID created by a <c>MsgStartSubscription</c> transaction.
+    /// Queries the TX by hash, parses <c>sentinel.subscription.v3.EventCreate</c>.
+    /// Polls briefly for LCD propagation.
+    /// </summary>
+    /// <param name="txHash">Transaction hash of the <c>MsgStartSubscription</c> broadcast.</param>
+    /// <param name="timeoutMs">How long to wait for the TX to appear in LCD (default: 20000).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The subscription ID, or null if not found within the timeout.</returns>
+    Task<long?> ExtractSubscriptionIdFromTxAsync(string txHash, int timeoutMs = 20000, CancellationToken ct = default);
+
+    /// <summary>
+    /// Extract the session ID created by a <c>MsgStartSession</c> transaction (pay-per-use or
+    /// subscription-based). Queries the TX by hash and parses the session-create events
+    /// (<c>sentinel.node.v3.EventCreateSession</c> or <c>sentinel.subscription.v3.EventCreateSession</c>).
+    /// Polls briefly for LCD propagation — the deterministic replacement for
+    /// <c>QueryActiveSessionsForAddressAsync</c>-based session lookups that fail on LCD lag.
+    /// </summary>
+    /// <param name="txHash">Transaction hash of the <c>MsgStartSession</c> broadcast.</param>
+    /// <param name="timeoutMs">How long to wait for the TX to appear in LCD (default: 20000).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The session ID, or null if not found within the timeout.</returns>
+    Task<long?> ExtractSessionIdFromTxAsync(string txHash, int timeoutMs = 20000, CancellationToken ct = default);
+
     // ─── Network Overview ───
 
     /// <summary>

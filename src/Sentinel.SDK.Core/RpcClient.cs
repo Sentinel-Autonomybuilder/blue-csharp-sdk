@@ -113,16 +113,172 @@ public sealed class RpcClient : IDisposable
         return ms.ToArray();
     }
 
+    // ─── Tendermint TX Lookup ──────────────────────────────────────
+
+    /// <summary>
+    /// Broadcast a raw transaction via Tendermint RPC <c>broadcast_tx_sync</c>.
+    /// Returns a parsed <see cref="TxResult"/> on success, or null if the RPC call fails
+    /// or returns a non-zero response code that should fall back to LCD.
+    /// </summary>
+    /// <param name="txBytes">Serialized TxRaw bytes.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Parsed result, or null if RPC is unavailable or response is unrecognizable.</returns>
+    public async Task<TxResult?> BroadcastTxAsync(byte[] txBytes, CancellationToken ct = default)
+    {
+        var base64Tx = Convert.ToBase64String(txBytes);
+        var body = JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "broadcast_tx_sync",
+            @params = new { tx = base64Tx },
+        });
+
+        foreach (var rpcUrl in _rpcUrls)
+        {
+            try
+            {
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                var response = await _http.PostAsync(rpcUrl, content, ct);
+                response.EnsureSuccessStatusCode();
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(json);
+
+                // JSON-RPC 2.0 error envelope — skip to next RPC URL
+                if (doc.RootElement.TryGetProperty("error", out _)) continue;
+                if (!doc.RootElement.TryGetProperty("result", out var result)) continue;
+
+                var code = result.TryGetProperty("code", out var c) ? c.GetInt32() : -1;
+                var log = result.TryGetProperty("log", out var l) ? l.GetString() ?? "" : "";
+                var hash = result.TryGetProperty("hash", out var h) ? h.GetString() ?? "" : "";
+
+                // Normalize hash to uppercase hex (RPC returns uppercase; LCD also uppercase)
+                return new TxResult(hash.ToUpperInvariant(), code, log, code == 0);
+            }
+            catch (Exception ex)
+            {
+                _logger?.Debug($"RPC broadcast_tx_sync {rpcUrl} failed: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Query a transaction by hash via Tendermint RPC (<c>tx</c> method) and return a parsed
+    /// <see cref="TxResult"/>. Returns null if the TX is not yet indexed or RPC is unavailable.
+    /// </summary>
+    /// <param name="txHash">Transaction hash (hex, upper or lower case).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<TxResult?> QueryTxAsync(string txHash, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(txHash);
+        var normalized = txHash.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? txHash : "0x" + txHash;
+        var body = JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tx",
+            @params = new { hash = normalized, prove = false },
+        });
+
+        foreach (var rpcUrl in _rpcUrls)
+        {
+            try
+            {
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                var response = await _http.PostAsync(rpcUrl, content, ct);
+                response.EnsureSuccessStatusCode();
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(json);
+
+                if (doc.RootElement.TryGetProperty("error", out _)) continue;
+                if (!doc.RootElement.TryGetProperty("result", out var result)) continue;
+                if (!result.TryGetProperty("tx_result", out var txResult)) continue;
+
+                var hash = result.TryGetProperty("hash", out var h) ? h.GetString() ?? "" : "";
+                var code = txResult.TryGetProperty("code", out var c) ? c.GetInt32() : 0;
+                var log = txResult.TryGetProperty("log", out var l) ? l.GetString() ?? "" : "";
+
+                return new TxResult(hash.ToUpperInvariant(), code, log, code == 0);
+            }
+            catch (Exception ex)
+            {
+                _logger?.Debug($"RPC tx lookup {rpcUrl} failed: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Query a transaction by hash via Tendermint RPC (<c>tx</c> method) and return the
+    /// <c>tx_result.events</c> array as JSON text. Events are already decoded by the node —
+    /// no base64 unwrapping required. Returns null if the TX is not yet indexed.
+    /// </summary>
+    /// <param name="txHash">Transaction hash (hex, upper or lower case).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task<string?> QueryTxEventsJsonAsync(string txHash, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(txHash);
+        // Tendermint's `tx` method accepts a 0x-prefixed hex hash.
+        var normalized = txHash.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? txHash : "0x" + txHash;
+        var body = JsonSerializer.Serialize(new
+        {
+            jsonrpc = "2.0",
+            id = 1,
+            method = "tx",
+            @params = new { hash = normalized, prove = false },
+        });
+
+        foreach (var rpcUrl in _rpcUrls)
+        {
+            try
+            {
+                var content = new StringContent(body, Encoding.UTF8, "application/json");
+                var response = await _http.PostAsync(rpcUrl, content, ct);
+                response.EnsureSuccessStatusCode();
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(json);
+
+                // Tendermint returns an error payload when TX not indexed — keep trying the next RPC.
+                if (!doc.RootElement.TryGetProperty("result", out var result)) continue;
+                if (!result.TryGetProperty("tx_result", out var txResult)) continue;
+                if (!txResult.TryGetProperty("events", out var events) ||
+                    events.ValueKind != JsonValueKind.Array ||
+                    events.GetArrayLength() == 0) continue;
+
+                return events.GetRawText();
+            }
+            catch (Exception ex)
+            {
+                _logger?.Debug($"RPC tx lookup {rpcUrl} failed: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
     // ─── Typed Query Methods ───────────────────────────────────────
 
     /// <summary>
     /// Query active nodes via RPC (ABCI protobuf). Much faster than LCD for bulk queries.
     /// </summary>
+    /// <remarks>
+    /// PAGINATION GOTCHA: Sentinel v3 QueryNodes truncates at <paramref name="limit"/>
+    /// and does NOT emit pagination.next_key. A standard Cosmos
+    /// "loop while next_key is non-empty" pattern terminates on the first call
+    /// and silently loses data. Keep <paramref name="limit"/> above the chain's
+    /// current active-node ceiling (~1048 as of 2026-04). Default raised to 10000.
+    /// </remarks>
     /// <param name="status">Node status filter (1 = active).</param>
-    /// <param name="limit">Maximum nodes to return.</param>
+    /// <param name="limit">Maximum nodes to return. Default 10000 — see remarks.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>List of chain nodes.</returns>
-    public async Task<List<ChainNode>> QueryNodesAsync(int status = 1, int limit = 500, CancellationToken ct = default)
+    public async Task<List<ChainNode>> QueryNodesAsync(int status = 1, int limit = 10000, CancellationToken ct = default)
     {
         var request = EncodeNodesRequest(status, limit);
         var response = await AbciQueryAsync("/sentinel.node.v3.QueryService/QueryNodes", request, ct);
@@ -175,11 +331,18 @@ public sealed class RpcClient : IDisposable
     }
 
     /// <summary>Query nodes linked to a plan via RPC.</summary>
+    /// <remarks>
+    /// PAGINATION GOTCHA: `QueryNodesForPlan` silently truncates at
+    /// <paramref name="limit"/> with no next_key. Observed 2026-04: plan 36 has
+    /// 803 active nodes but `limit=500` returns exactly 500 with no indication
+    /// more exist. Default raised to 10000. If a plan grows beyond that, raise
+    /// further — the chain's own ceiling is the effective limit.
+    /// </remarks>
     /// <param name="planId">Plan ID.</param>
     /// <param name="status">Node status filter (1 = active).</param>
-    /// <param name="limit">Maximum nodes to return.</param>
+    /// <param name="limit">Maximum nodes to return. Default 10000 — see remarks.</param>
     /// <param name="ct">Cancellation token.</param>
-    public async Task<List<ChainNode>> QueryNodesForPlanAsync(ulong planId, int status = 1, int limit = 500, CancellationToken ct = default)
+    public async Task<List<ChainNode>> QueryNodesForPlanAsync(ulong planId, int status = 1, int limit = 10000, CancellationToken ct = default)
     {
         var request = EncodeNodesForPlanRequest(planId, status, limit);
         var response = await AbciQueryAsync("/sentinel.node.v3.QueryService/QueryNodesForPlan", request, ct);
