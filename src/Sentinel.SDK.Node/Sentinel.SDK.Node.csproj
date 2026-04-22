@@ -4,13 +4,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Sentinel.SDK.Node</RootNamespace>
-    <PackageId>Sentinel.SDK.Node</PackageId>
-    <Version>1.0.0</Version>
+    <PackageId>Blue-Csharp-Sdk.Node</PackageId>
+    <Version>2.1.0</Version>
     <Authors>Sentinel dVPN Community</Authors>
     <Description>Sentinel dVPN SDK for .NET — V3 handshake, node status, session management</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/sentinel-official</PackageProjectUrl>
     <PackageTags>sentinel;dvpn;vpn;blockchain;cosmos</PackageTags>
+    <PackageReleaseNotes>BREAKING: DisconnectAsync(bool endSession) replaced by DisconnectAsync() (soft) and DisconnectAndEndSessionAsync() (hard). See docs/features/DISCONNECT.md.</PackageReleaseNotes>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Sentinel.SDK.Core\Sentinel.SDK.Core.csproj" />
