@@ -54,7 +54,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QueryNodesAsync(1, limit, ct);
+            var rpcNodes = await _rpcClient.QueryNodesAsync(1, limit, ct);
+            if (rpcNodes.Count > 0) return rpcNodes;
+            _logger?.Debug("RPC returned no active nodes; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC GetActiveNodes failed, falling back to LCD: {ex.Message}"); }
 
@@ -111,7 +113,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QuerySubscriptionsForAccountAsync(address, ct: ct);
+            var rpcSubs = await _rpcClient.QuerySubscriptionsForAccountAsync(address, ct: ct);
+            if (rpcSubs.Count > 0) return rpcSubs;
+            _logger?.Debug("RPC returned no subscriptions; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC GetSubscriptions failed, falling back to LCD: {ex.Message}"); }
 
@@ -135,10 +139,15 @@ public sealed partial class ChainClient
         try
         {
             var sessions = await _rpcClient.QuerySessionsForAccountAsync(address, ct: ct);
-            // Filter by status if specified (RPC returns all statuses)
-            if (status == "1")
-                return sessions.Where(s => s.Status == "active" || s.Status == "1").ToList();
-            return sessions;
+            if (sessions.Count > 0)
+            {
+                // Filter by status if specified (RPC returns all statuses)
+                var filtered = status == "1"
+                    ? sessions.Where(s => s.Status == "active" || s.Status == "1").ToList()
+                    : sessions;
+                if (filtered.Count > 0) return filtered;
+            }
+            _logger?.Debug("RPC returned no sessions; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC GetSessions failed, falling back to LCD: {ex.Message}"); }
 
@@ -159,7 +168,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QueryNodesForPlanAsync((ulong)planId, 1, 5000, ct);
+            var rpcNodes = await _rpcClient.QueryNodesForPlanAsync((ulong)planId, 1, 5000, ct);
+            if (rpcNodes.Count > 0) return rpcNodes;
+            _logger?.Debug("RPC returned no plan nodes; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC GetPlanNodes failed, falling back to LCD: {ex.Message}"); }
 
@@ -266,11 +277,23 @@ public sealed partial class ChainClient
 
     /// <summary>
     /// Get account number and sequence for transaction signing.
+    /// RPC-first (cosmos.auth.v1beta1.Query/Account) with LCD fallback.
     /// </summary>
     /// <param name="address">Account address (sent1...).</param>
     /// <returns>Tuple of (accountNumber, sequence).</returns>
     internal async Task<(ulong AccountNumber, ulong Sequence)> GetAccountInfoAsync(string address, CancellationToken ct = default)
     {
+        // RPC-first: faster, no LCD rate-limit exposure.
+        try
+        {
+            var rpcResult = await _rpcClient.QueryAccountAsync(address, ct);
+            if (rpcResult is not null)
+                return rpcResult.Value;
+            _logger?.Debug("RPC QueryAccount returned null; falling back to LCD.");
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryAccount failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/cosmos/auth/v1beta1/accounts/{address}";
         var json = await LcdGetAsync(path, ct);
 
@@ -554,17 +577,23 @@ public sealed partial class ChainClient
     {
         ArgumentNullException.ThrowIfNull(walletAddress);
 
-        // RPC-first
+        // RPC-first. Treat empty result as suspicious and fall through to LCD — a silent
+        // empty return used to mask decoder bugs (see suggestions/2026-04-21-rpc-session-decoder-any-and-field-numbers.md).
         try
         {
             var rpcSessions = await _rpcClient.QuerySessionsForAccountAsync(walletAddress, ct: ct);
-            return rpcSessions
-                .Where(s => s.Status == "active" || s.Status == "1")
-                .Select(s => new ActiveSession(
-                    ulong.TryParse(s.Id, out var sid) ? sid : 0,
-                    s.NodeAddress,
-                    SessionStatus.Active))
-                .ToList();
+            if (rpcSessions.Count > 0)
+            {
+                var active = rpcSessions
+                    .Where(s => s.Status == "active" || s.Status == "1")
+                    .Select(s => new ActiveSession(
+                        ulong.TryParse(s.Id, out var sid) ? sid : 0,
+                        s.NodeAddress,
+                        SessionStatus.Active))
+                    .ToList();
+                if (active.Count > 0) return active;
+            }
+            _logger?.Debug("RPC QueryActiveSessions returned no active sessions; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC QueryActiveSessions failed, falling back to LCD: {ex.Message}"); }
 
@@ -605,7 +634,18 @@ public sealed partial class ChainClient
 
         // LCD fallback
         var path = $"/sentinel/session/v3/sessions/{sessionId}/allocations";
-        var json = await LcdGetAsync(path, ct);
+        JsonElement json;
+        try
+        {
+            json = await LcdGetAsync(path, ct);
+        }
+        catch (SentinelException ex) when (ex.Code == "CLIENT_HTTP_404")
+        {
+            // Fresh session with no bandwidth reported yet (node hasn't called back to chain).
+            // Treat as "allocation unknown" rather than failing session reuse — see
+            // suggestions/2026-04-19-connect-widen-reuse-handshake-retry.md.
+            return null;
+        }
 
         if (json.TryGetProperty("allocations", out var arr) && arr.ValueKind == JsonValueKind.Array)
         {
@@ -640,7 +680,9 @@ public sealed partial class ChainClient
         // RPC-first (v2 — v3 returns 501)
         try
         {
-            return await _rpcClient.QuerySubscriptionAllocationsAsync(subscriptionId, ct: ct);
+            var rpcAllocs = await _rpcClient.QuerySubscriptionAllocationsAsync(subscriptionId, ct: ct);
+            if (rpcAllocs.Count > 0) return rpcAllocs;
+            _logger?.Debug("RPC returned no subscription allocations; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC QuerySubAllocations failed, falling back to LCD: {ex.Message}"); }
 
@@ -691,7 +733,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QueryNodesForPlanAsync((ulong)planId, 1, 5000, ct);
+            var rpcNodes = await _rpcClient.QueryNodesForPlanAsync((ulong)planId, 1, 5000, ct);
+            if (rpcNodes.Count > 0) return rpcNodes;
+            _logger?.Debug("RPC returned no plan nodes; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC QueryPlanNodes failed, falling back to LCD: {ex.Message}"); }
 
@@ -867,6 +911,7 @@ public sealed partial class ChainClient
 
     /// <summary>
     /// Query all subscribers of a plan.
+    /// RPC-first (verified wire format 2026-04-21); falls through to LCD on empty or exception.
     /// Optionally exclude an address (e.g. the plan owner) from the results.
     /// </summary>
     /// <param name="planId">Plan ID.</param>
@@ -878,6 +923,22 @@ public sealed partial class ChainClient
         string? excludeAddress = null,
         CancellationToken ct = default)
     {
+        // RPC-first (QuerySubscriptionsForPlan — direct PlanSubscription, not Any-wrapped).
+        try
+        {
+            var rpcSubs = await _rpcClient.QuerySubscriptionsForPlanAsync((ulong)planId, ct: ct);
+            if (rpcSubs.Count > 0)
+            {
+                var filtered = excludeAddress is null
+                    ? rpcSubs
+                    : rpcSubs.Where(s => !string.Equals(s.Address, excludeAddress, StringComparison.OrdinalIgnoreCase)).ToList();
+                return filtered;
+            }
+            _logger?.Debug("RPC QueryPlanSubscribers returned no results; falling back to LCD to verify.");
+        }
+        catch (Exception ex) { _logger?.Debug($"RPC QueryPlanSubscribers failed, falling back to LCD: {ex.Message}"); }
+
+        // LCD fallback
         var path = $"/sentinel/subscription/v3/plans/{planId}/subscriptions";
         var items = await LcdPaginatedAsync(path, "subscriptions", ct);
 
@@ -885,7 +946,8 @@ public sealed partial class ChainClient
 
         foreach (var item in items)
         {
-            var address = item.TryGetProperty("address", out var a) ? a.GetString() ?? "" : "";
+            var address = item.TryGetProperty("acc_address", out var a) ? a.GetString() ?? ""
+                : item.TryGetProperty("address", out var a2) ? a2.GetString() ?? "" : "";
             if (string.IsNullOrEmpty(address) && item.TryGetProperty("subscriber", out var sub))
             {
                 address = sub.GetString() ?? "";
@@ -1079,7 +1141,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QueryAuthzGrantsAsync(granter, grantee, ct: ct);
+            var rpcGrants = await _rpcClient.QueryAuthzGrantsAsync(granter, grantee, ct: ct);
+            if (rpcGrants.Count > 0) return rpcGrants;
+            _logger?.Debug("RPC returned no authz grants; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC QueryAuthzGrants failed, falling back to LCD: {ex.Message}"); }
 

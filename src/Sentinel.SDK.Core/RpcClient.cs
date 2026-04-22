@@ -365,8 +365,10 @@ public sealed class RpcClient : IDisposable
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         var response = await AbciQueryAsync("/sentinel.session.v3.QueryService/QuerySessionsForAccount", ms.ToArray(), ct);
         var fields = ProtobufReader.Decode(response);
+        // RPC returns sessions wrapped in google.protobuf.Any (type_url=1, value=2).
+        // Unwrap the Any to get the raw Session proto, then decode.
         return ProtobufReader.GetFields(fields, 1)
-            .Select(f => ProtobufReader.DecodeSession(ProtobufReader.DecodeEmbedded(f)))
+            .Select(f => ProtobufReader.DecodeSessionFromAny(ProtobufReader.DecodeEmbedded(f)))
             .ToList();
     }
 
@@ -383,8 +385,36 @@ public sealed class RpcClient : IDisposable
         ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
         var response = await AbciQueryAsync("/sentinel.subscription.v3.QueryService/QuerySubscriptionsForAccount", ms.ToArray(), ct);
         var fields = ProtobufReader.Decode(response);
+        // RPC returns subscriptions wrapped in google.protobuf.Any — unwrap before decoding.
         return ProtobufReader.GetFields(fields, 1)
-            .Select(f => ProtobufReader.DecodeSubscription(ProtobufReader.DecodeEmbedded(f)))
+            .Select(f => ProtobufReader.DecodeSubscriptionFromAny(ProtobufReader.DecodeEmbedded(f)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Query subscribers of a plan via RPC.
+    /// Verified wire format (2026-04-21): outer field 1 is a repeated PlanSubscription —
+    /// NOT Any-wrapped (unlike QuerySessionsForAccount / QuerySubscriptionsForAccount).
+    /// PlanSubscription: id=1(varint), acc_address=2(string), plan_id=3(varint),
+    /// price=4(embedded), status=6(varint), inactive_at=7, start_at=8, status_at=9.
+    /// </summary>
+    /// <param name="planId">Plan ID.</param>
+    /// <param name="limit">Maximum subscribers to return.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>List of plan subscribers, or empty list if RPC returns nothing.</returns>
+    public async Task<List<PlanSubscriber>> QuerySubscriptionsForPlanAsync(ulong planId, int limit = 1000, CancellationToken ct = default)
+    {
+        using var ms = new MemoryStream();
+        ProtobufWriter.WriteVarintField(ms, 1, planId);
+        using var pag = new MemoryStream();
+        ProtobufWriter.WriteVarintField(pag, 3, (ulong)limit);
+        ProtobufWriter.WriteEmbeddedField(ms, 2, pag.ToArray());
+        var response = await AbciQueryAsync("/sentinel.subscription.v3.QueryService/QuerySubscriptionsForPlan", ms.ToArray(), ct);
+        if (response.Length == 0) return [];
+        var fields = ProtobufReader.Decode(response);
+        // Outer field 1 is direct PlanSubscription (NOT Any-wrapped — verified from mainnet wire bytes).
+        return ProtobufReader.GetFields(fields, 1)
+            .Select(f => ProtobufReader.DecodePlanSubscription(ProtobufReader.DecodeEmbedded(f)))
             .ToList();
     }
 
@@ -586,6 +616,49 @@ public sealed class RpcClient : IDisposable
             if (long.TryParse(granted, out var maxBytes) && long.TryParse(utilised, out var usedBytes))
                 return new RawSessionAllocation(maxBytes, usedBytes);
             return null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Query an account's number and sequence via RPC (cosmos.auth.v1beta1).
+    /// </summary>
+    /// <remarks>
+    /// Proto: cosmos.auth.v1beta1.QueryAccountRequest { address = 1 (string) }
+    /// Response:                 QueryAccountResponse  { account = 1 (Any)   }
+    /// Any unwraps to BaseAccount: address=1(str), pub_key=2(Any–skip),
+    ///   account_number=3(varint), sequence=4(varint).
+    /// </remarks>
+    /// <param name="address">Account address (sent1...).</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Tuple of (AccountNumber, Sequence), or null on failure.</returns>
+    public async Task<(ulong AccountNumber, ulong Sequence)?> QueryAccountAsync(string address, CancellationToken ct = default)
+    {
+        try
+        {
+            var request = EncodeStringRequest(1, address);
+            var response = await AbciQueryAsync("/cosmos.auth.v1beta1.Query/Account", request, ct);
+            var fields = ProtobufReader.Decode(response);
+
+            // Field 1 of QueryAccountResponse is a google.protobuf.Any (type_url=1, value=2).
+            // The Any value bytes contain the BaseAccount proto.
+            var anyField = ProtobufReader.GetField(fields, 1);
+            if (anyField is null) return null;
+
+            var anyFields = ProtobufReader.DecodeEmbedded(anyField);
+            // type_url is field 1 (string), value bytes are field 2 (embedded message).
+            var valueField = ProtobufReader.GetField(anyFields, 2);
+            if (valueField is null) return null;
+
+            var baseAccountFields = ProtobufReader.DecodeEmbedded(valueField);
+            // account_number = field 3 (varint), sequence = field 4 (varint).
+            var accNumField = ProtobufReader.GetField(baseAccountFields, 3);
+            var seqField    = ProtobufReader.GetField(baseAccountFields, 4);
+
+            var accountNumber = accNumField?.Varint ?? 0UL;
+            var sequence      = seqField?.Varint    ?? 0UL;
+
+            return (accountNumber, sequence);
         }
         catch { return null; }
     }

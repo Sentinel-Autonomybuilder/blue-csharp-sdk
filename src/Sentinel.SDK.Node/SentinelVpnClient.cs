@@ -185,7 +185,8 @@ public sealed class QuickConnectResult : IDisposable, IAsyncDisposable
 
         try
         {
-            await client.DisconnectAsync();
+            // Wrapper disposal = app shutdown: settle the session on-chain.
+            await client.DisconnectAndEndSessionAsync();
         }
         catch
         {
@@ -478,10 +479,12 @@ public partial class SentinelVpnClient : IDisposable, IAsyncDisposable
     {
         if (_activeConnection is null) return;
 
-        _logger.Info($"Network changed ({e.Reason}) — disconnecting stale tunnel.");
+        _logger.Info($"Network changed ({e.Reason}) — tearing down stale tunnel (session preserved for reuse).");
 
         try
         {
+            // Soft disconnect: user flipped networks, they didn't quit.
+            // Preserve the on-chain session so ConnectAsync can reuse it.
             await DisconnectAsync();
         }
         catch (Exception ex)
@@ -530,7 +533,8 @@ public partial class SentinelVpnClient : IDisposable, IAsyncDisposable
         {
             try
             {
-                await DisconnectInternalAsync("dispose");
+                // App shutdown: settle the session on-chain so the deposit refunds.
+                await DisconnectInternalAsync("dispose", endSession: true);
             }
             catch
             {
@@ -574,7 +578,7 @@ public partial class SentinelVpnClient : IDisposable, IAsyncDisposable
             // Dispose is called from a UI thread with a SynchronizationContext.
             try
             {
-                Task.Run(() => DisconnectInternalAsync("dispose")).GetAwaiter().GetResult();
+                Task.Run(() => DisconnectInternalAsync("dispose", endSession: true)).GetAwaiter().GetResult();
             }
             catch
             {

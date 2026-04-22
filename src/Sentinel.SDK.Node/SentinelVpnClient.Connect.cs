@@ -180,7 +180,9 @@ public partial class SentinelVpnClient
 
             // ─── Step 5: Check for existing active session (skip payment) ───
             ulong sessionId;
+#pragma warning disable CS0219 // kept for future use in connect-result telemetry
             var reuseExisting = false;
+#pragma warning restore CS0219
 
             if (!_options.ForceNewSession)
             {

@@ -97,27 +97,52 @@ internal static class ProtobufReader
     }
 
     /// <summary>
+    /// Unwrap a google.protobuf.Any (type_url=1, value=2) containing a Session message and decode it.
+    /// RPC responses wrap repeated Session entries in Any; LCD returns the Session directly.
+    /// </summary>
+    internal static ChainSession DecodeSessionFromAny(List<ProtoField> anyFields)
+    {
+        // Any.value (field 2) contains the serialized Session message bytes.
+        var valueField = GetField(anyFields, 2);
+        if (valueField is null) return DecodeSession(anyFields); // Fallback — not Any-wrapped
+        var sessionFields = DecodeEmbedded(valueField);
+        return DecodeSession(sessionFields);
+    }
+
+    /// <summary>
+    /// Unwrap a google.protobuf.Any (type_url=1, value=2) containing a Subscription message and decode it.
+    /// </summary>
+    internal static Subscription DecodeSubscriptionFromAny(List<ProtoField> anyFields)
+    {
+        var valueField = GetField(anyFields, 2);
+        if (valueField is null) return DecodeSubscription(anyFields);
+        var subFields = DecodeEmbedded(valueField);
+        return DecodeSubscription(subFields);
+    }
+
+    /// <summary>
     /// Decode a ChainSession from protobuf fields.
-    /// Session v3 wraps in base_session (field 1). Base session proto:
-    /// id=1, acc_address=2, node_address=3, download_bytes=7(varint), upload_bytes=8(varint),
-    /// max_bytes=9(varint), duration=10(string), max_duration=11(string), status=14(varint),
-    /// inactive_at=15(embedded timestamp), start_at=16(embedded timestamp)
+    /// Session v3 wraps in base_session (field 1). Verified base_session wire layout:
+    /// id=1(varint), acc_address=2(string), node_address=3(string),
+    /// download_bytes=4(string), upload_bytes=5(string), max_bytes=6(string),
+    /// duration=7(string), max_duration=8(string), status=9(varint),
+    /// inactive_at=10(timestamp), status_at=11(timestamp), start_at=12(timestamp).
     /// </summary>
     internal static ChainSession DecodeSession(List<ProtoField> outerFields)
     {
-        // Unwrap base_session (field 1) if present
+        // Unwrap base_session (field 1) if present and embedded
         var baseField = GetField(outerFields, 1);
-        var fields = baseField is not null ? DecodeEmbedded(baseField) : outerFields;
+        var fields = (baseField is not null && baseField.WireType == 2) ? DecodeEmbedded(baseField) : outerFields;
 
         var id = GetField(fields, 1) is { } f1 ? f1.Varint.ToString() : "0";
         var accAddr = GetField(fields, 2) is { } f2 ? DecodeString(f2) : "";
         var nodeAddr = GetField(fields, 3) is { } f3 ? DecodeString(f3) : "";
-        var download = GetField(fields, 7) is { } f7 ? f7.Varint.ToString() : "0";
-        var upload = GetField(fields, 8) is { } f8 ? f8.Varint.ToString() : "0";
-        var maxBytes = GetField(fields, 9) is { } f9 ? f9.Varint.ToString() : "0";
-        var duration = GetField(fields, 10) is { } f10 ? DecodeString(f10) : null;
-        var maxDuration = GetField(fields, 11) is { } f11 ? DecodeString(f11) : null;
-        var status = GetField(fields, 14) is { } f14 ? (int)f14.Varint : 0;
+        var download = GetField(fields, 4) is { } f4 ? DecodeString(f4) : "0";
+        var upload = GetField(fields, 5) is { } f5 ? DecodeString(f5) : "0";
+        var maxBytes = GetField(fields, 6) is { } f6 ? DecodeString(f6) : "0";
+        var duration = GetField(fields, 7) is { } f7 ? DecodeString(f7) : null;
+        var maxDuration = GetField(fields, 8) is { } f8 ? DecodeString(f8) : null;
+        var status = GetField(fields, 9) is { } f9 ? (int)f9.Varint : 0;
         // status: 1=active, 2=inactive_pending, 3=inactive
         var statusStr = status switch { 1 => "active", 2 => "inactive_pending", 3 => "inactive", _ => status.ToString() };
 
@@ -165,6 +190,26 @@ internal static class ProtobufReader
         var description = GetField(fields, 5) is { } f5 ? DecodeString(f5) : "";
         var status = GetField(fields, 6) is { } f6 ? (int)f6.Varint : 0;
         return new Provider(address, name, identity, website, description, status);
+    }
+
+    /// <summary>
+    /// Decode a PlanSubscription from protobuf fields.
+    /// Verified wire layout from live RPC probe (2026-04-21, plan 42):
+    /// id=1(varint), acc_address=2(string), plan_id=3(varint),
+    /// price=4(embedded: denom=1/string, base_value=2/string, quote_value=3/string),
+    /// status=6(varint: 1=active, 2=inactive_pending, 3=inactive),
+    /// inactive_at=7(timestamp), start_at=8(timestamp), status_at=9(timestamp).
+    /// NOTE: outer response field 1 is NOT Any-wrapped — direct PlanSubscription bytes.
+    /// </summary>
+    internal static PlanSubscriber DecodePlanSubscription(List<ProtoField> fields)
+    {
+        var id = GetField(fields, 1) is { } f1 ? f1.Varint.ToString() : "0";
+        var accAddr = GetField(fields, 2) is { } f2 ? DecodeString(f2) : "";
+        // plan_id is field 3 (varint) on PlanSubscription — not base_subscription field 4
+        var status = GetField(fields, 6) is { } f6 ? (int)f6.Varint : 0;
+        var statusStr = status switch { 1 => "active", 2 => "inactive_pending", 3 => "inactive", _ => status.ToString() };
+
+        return new PlanSubscriber(accAddr, status, id);
     }
 
     /// <summary>

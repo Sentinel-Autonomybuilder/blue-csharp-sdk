@@ -226,12 +226,25 @@ public class SentinelVpnService : IDisposable
     }
 
     /// <summary>
-    /// Disconnect from the current node and clean up the tunnel.
+    /// Soft disconnect — tear down the tunnel, leave the on-chain session active.
+    /// Next <see cref="ConnectAsync"/> to the same node reuses the session (no new payment).
+    /// Use for pause / temporary disconnect.
     /// </summary>
     public async Task DisconnectAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         await _vpnClient.DisconnectAsync();
+    }
+
+    /// <summary>
+    /// Hard disconnect — tear down the tunnel AND broadcast <c>MsgCancelSession</c> on chain.
+    /// Settles the session and refunds the unused bandwidth deposit.
+    /// Use when the user is done with this node.
+    /// </summary>
+    public async Task DisconnectAndEndSessionAsync()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _vpnClient.DisconnectAndEndSessionAsync();
     }
 
     // ─── Node Discovery ──────────────────────────────────────────────

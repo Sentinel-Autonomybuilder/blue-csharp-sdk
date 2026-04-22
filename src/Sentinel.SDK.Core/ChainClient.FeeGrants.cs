@@ -22,7 +22,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QueryFeeGrantsAsync(grantee, ct: ct);
+            var rpcGrants = await _rpcClient.QueryFeeGrantsAsync(grantee, ct: ct);
+            if (rpcGrants.Count > 0) return rpcGrants;
+            _logger?.Debug("RPC returned no fee grants; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC QueryFeeGrants failed, falling back to LCD: {ex.Message}"); }
 
@@ -58,7 +60,9 @@ public sealed partial class ChainClient
         // RPC-first
         try
         {
-            return await _rpcClient.QueryFeeGrantsIssuedAsync(granter, ct: ct);
+            var rpcGrants = await _rpcClient.QueryFeeGrantsIssuedAsync(granter, ct: ct);
+            if (rpcGrants.Count > 0) return rpcGrants;
+            _logger?.Debug("RPC returned no issued fee grants; falling back to LCD to verify.");
         }
         catch (Exception ex) { _logger?.Debug($"RPC QueryFeeGrantsIssued failed, falling back to LCD: {ex.Message}"); }
 
